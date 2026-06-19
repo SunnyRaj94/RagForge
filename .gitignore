@@ -228,3 +228,4 @@ docs/superpowers/
 todo.md
 mlruns/
 .streamlit/
+mlflow.db
