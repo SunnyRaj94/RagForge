@@ -1,3 +1,4 @@
+import os
 import httpx
 import asyncio
 import uuid
@@ -11,7 +12,10 @@ from src.ragforge.config import (
     TEMPORAL_URL,
     OPENPROJECT_URL,
     OPENPROJECT_API_KEY,
+    ROLLING_WINDOW_TURNS,
 )
+from src.ragforge.session_store import get_session_store
+
 
 load_dotenv()
 
@@ -131,11 +135,25 @@ ollama_url = OLLAMA_URL
 try:
     res = httpx.get(f"{ollama_url}/api/tags", timeout=5.0)
     models_data = res.json().get("models", [])
-    model_names = [m["name"] for m in models_data]
+    # Filter out embedding models from LLM list (they do not support chat endpoint)
+    model_names = [m["name"] for m in models_data if "embed" not in m["name"].lower()]
+    if not model_names:
+        model_names = ["gemma4:e4b", "llama3:latest", "qwen2.5-coder:latest"]
 except Exception:
     model_names = ["gemma4:e4b", "llama3:latest", "qwen2.5-coder:latest"]
 
-selected_llm = st.sidebar.selectbox("LLM Reasoning Model", model_names, index=0)
+# Determine a responsive default model (prefer qwen2.5-coder:latest or llama3:latest if available)
+default_idx = 0
+for idx, name in enumerate(model_names):
+    if "qwen2.5-coder" in name:
+        default_idx = idx
+        break
+    elif "llama3" in name:
+        default_idx = idx
+
+selected_llm = st.sidebar.selectbox(
+    "LLM Reasoning Model", model_names, index=default_idx
+)
 
 # Directory ingestion form
 st.sidebar.markdown("---")
@@ -194,14 +212,28 @@ if st.sidebar.button("Run Ingestion Pipeline", use_container_width=True):
                 st.sidebar.error(str(e))
 
 
-# Setup sessions and RAG agent loop
-async def run_agent_turn(prompt: str, llm_model: str) -> str:
-    # 1. Connect to Qdrant MCP and OpenProject MCP
-    qdrant_params = StdioServerParameters(
-        command="uv", args=["run", "python", "servers/qdrant_mcp.py"]
+def get_python_interpreter() -> str:
+    venv_python = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python"
     )
+    if os.path.exists(venv_python):
+        return venv_python
+    import sys
+
+    return sys.executable
+
+
+# Setup sessions and RAG agent loop
+async def run_agent_turn(prompt: str, llm_model: str, recent_history: list = None, session_id: str = None) -> str:
+    python_bin = get_python_interpreter()
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    qdrant_script = os.path.join(app_dir, "servers", "qdrant_mcp.py")
+    openproject_script = os.path.join(app_dir, "servers", "openproject_mcp.py")
+
+    # 1. Connect to Qdrant MCP and OpenProject MCP
+    qdrant_params = StdioServerParameters(command=python_bin, args=[qdrant_script])
     openproject_params = StdioServerParameters(
-        command="uv", args=["run", "python", "servers/openproject_mcp.py"]
+        command=python_bin, args=[openproject_script]
     )
 
     thought_placeholder = st.empty()
@@ -250,6 +282,9 @@ async def run_agent_turn(prompt: str, llm_model: str) -> str:
 
             system_prompt = f"""You are an intelligent RAG project management assistant. You have access to local tools for searching the document knowledge base (Qdrant) and interacting with OpenProject.
 
+Current Session ID: {session_id}
+Use this Session ID when calling tools (like `search_documents`, `upsert_documents`, `search_chat_history`, or `ingest_file_or_directory`) if you want to index new documents/turns for this session or filter search results to this session.
+
 Available tools:
 {tools_desc}
 
@@ -276,8 +311,10 @@ IMPORTANT:
 
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
             ]
+            if recent_history:
+                messages.extend(recent_history)
+            messages.append({"role": "user", "content": prompt})
 
             # ReAct loop
             max_iterations = 6
@@ -503,9 +540,108 @@ with m_col3:
         unsafe_allow_html=True,
     )
 
-# Chat history initialization
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# Session store helper
+async def index_chat_turn_async(session_id: str, user_msg: str, assistant_msg: str):
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, VectorParams, PointStruct
+    from datetime import datetime
+    from src.ragforge.config import QDRANT_URL, DEFAULT_EMBEDDING_MODEL, CHAT_HISTORY_COLLECTION
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{OLLAMA_URL}/api/embeddings",
+                json={"model": DEFAULT_EMBEDDING_MODEL, "prompt": f"User: {user_msg}\nAssistant: {assistant_msg}"},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            vector = response.json()["embedding"]
+        
+        q_client = QdrantClient(url=QDRANT_URL)
+        if not q_client.collection_exists(CHAT_HISTORY_COLLECTION):
+            q_client.create_collection(
+                collection_name=CHAT_HISTORY_COLLECTION,
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+            )
+        
+        doc_id = str(uuid.uuid4())
+        payload = {
+            "text": f"User: {user_msg}\nAssistant: {assistant_msg}",
+            "session_id": session_id,
+            "user_message": user_msg,
+            "assistant_message": assistant_msg,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        q_client.upsert(
+            collection_name=CHAT_HISTORY_COLLECTION,
+            points=[PointStruct(id=doc_id, vector=vector, payload=payload)]
+        )
+    except Exception as e:
+        print(f"Failed to index chat turn to Qdrant: {str(e)}")
+
+
+# Chat session management setup
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<h3 style='font-weight: 600; font-size: 1.1rem;'>Chat Sessions</h3>",
+    unsafe_allow_html=True,
+)
+
+store = get_session_store()
+sessions = store.list_sessions()
+
+if "active_session_id" not in st.session_state:
+    if sessions:
+        st.session_state.active_session_id = sessions[0]["session_id"]
+    else:
+        new_sid = str(uuid.uuid4())
+        store.save_session(new_sid, "New Chat Session", [])
+        st.session_state.active_session_id = new_sid
+        sessions = store.list_sessions()
+
+# Limit list to top 5 unique recent sessions, ensuring active session is always included
+recent_sessions = sessions[:5]
+if st.session_state.active_session_id not in [s["session_id"] for s in recent_sessions]:
+    active_details = next((s for s in sessions if s["session_id"] == st.session_state.active_session_id), None)
+    if active_details:
+        recent_sessions.append(active_details)
+    else:
+        active_details = store.load_session(st.session_state.active_session_id)
+        recent_sessions.append({
+            "session_id": active_details.get("session_id"),
+            "name": active_details.get("name"),
+            "created_at": active_details.get("created_at"),
+            "updated_at": active_details.get("updated_at")
+        })
+
+session_options = {s["session_id"]: s["name"] for s in recent_sessions}
+
+selected_session_id = st.sidebar.selectbox(
+    "Select Session",
+    options=list(session_options.keys()),
+    format_func=lambda x: session_options.get(x, x),
+    index=list(session_options.keys()).index(st.session_state.active_session_id) if st.session_state.active_session_id in session_options else 0
+)
+
+if selected_session_id != st.session_state.active_session_id:
+    st.session_state.active_session_id = selected_session_id
+    st.rerun()
+
+if st.sidebar.button("➕ New Chat Session", use_container_width=True):
+    new_sid = str(uuid.uuid4())
+    store.save_session(new_sid, "New Chat Session", [])
+    st.session_state.active_session_id = new_sid
+    st.rerun()
+
+active_session = store.load_session(st.session_state.active_session_id)
+active_name = active_session.get("name", "New Chat Session")
+
+new_session_name = st.sidebar.text_input("Rename Session", value=active_name)
+if new_session_name != active_name and new_session_name.strip():
+    store.save_session(st.session_state.active_session_id, new_session_name, active_session.get("messages", []))
+    st.rerun()
+
+st.session_state.messages = active_session.get("messages", [])
 
 # Display message history
 for msg in st.session_state.messages:
@@ -525,8 +661,11 @@ if user_prompt := st.chat_input(
     with st.chat_message("assistant"):
         with st.spinner("Agent is reasoning..."):
             try:
+                # Grab a rolling window of recent history (up to K turns = 2K messages)
+                recent_history = st.session_state.messages[:-1][-2 * ROLLING_WINDOW_TURNS:]
+                
                 final_answer, thoughts = asyncio.run(
-                    run_agent_turn(user_prompt, selected_llm)
+                    run_agent_turn(user_prompt, selected_llm, recent_history, st.session_state.active_session_id)
                 )
 
                 # Render reasoning steps in expandable list
@@ -544,5 +683,33 @@ if user_prompt := st.chat_input(
                 st.session_state.messages.append(
                     {"role": "assistant", "content": final_answer}
                 )
+                
+                # Save session to persistent store
+                store.save_session(
+                    st.session_state.active_session_id,
+                    active_name,
+                    st.session_state.messages
+                )
+                
+                # Index the chat turn to Qdrant for long-term semantic memory
+                asyncio.run(
+                    index_chat_turn_async(
+                        st.session_state.active_session_id,
+                        user_prompt,
+                        final_answer
+                    )
+                )
+                
             except Exception as ex:
-                st.error(f"Reasoning Loop Failed: {str(ex)}")
+                import traceback
+
+                traceback.print_exc()  # Log full traceback to terminal
+
+                error_msg = f"Reasoning Loop Failed: {str(ex)}"
+                if hasattr(ex, "exceptions"):
+                    sub_errors = []
+                    for sub_ex in ex.exceptions:
+                        sub_errors.append(f"- {type(sub_ex).__name__}: {str(sub_ex)}")
+                    error_msg += "\n\nSub-exceptions details:\n" + "\n".join(sub_errors)
+                st.error(error_msg)
+
