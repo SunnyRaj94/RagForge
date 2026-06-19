@@ -37,7 +37,7 @@ async def scan_directory_activity(directory_path: str) -> List[str]:
 
 
 @activity.defn
-async def parse_and_chunk_activity(payload: Dict[str, str]) -> List[Dict[str, Any]]:
+async def parse_and_chunk_activity(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Loads and chunks a document file."""
     # Local imports to avoid Temporal sandbox validation errors
     from src.ragforge.loader.loader import load_file
@@ -61,6 +61,14 @@ async def embed_and_index_activity(payload: Dict[str, Any]) -> str:
 
     collection_name = payload["collection_name"]
     chunks = payload["chunks"]
+    session_id = payload.get("session_id", None)
+
+    # Inject session_id if provided
+    if session_id:
+        for chunk in chunks:
+            if "metadata" not in chunk:
+                chunk["metadata"] = {}
+            chunk["metadata"]["session_id"] = session_id
 
     # 1. Create collection (default 768 dimensions for nomic-embed-text)
     create_collection(collection_name, 768)
@@ -103,6 +111,7 @@ class IngestionWorkflow:
         directory_path = payload["directory_path"]
         collection_name = payload["collection_name"]
         config_path = payload.get("config_path", None)
+        session_id = payload.get("session_id", None)
 
         start_time = workflow.now().timestamp()
 
@@ -137,7 +146,7 @@ class IngestionWorkflow:
         if all_chunks:
             index_result = await workflow.execute_activity(
                 embed_and_index_activity,
-                {"collection_name": collection_name, "chunks": all_chunks},
+                {"collection_name": collection_name, "chunks": all_chunks, "session_id": session_id},
                 start_to_close_timeout=timedelta(minutes=15),
             )
 

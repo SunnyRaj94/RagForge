@@ -1,4 +1,8 @@
 from mcp.server.fastmcp import FastMCP
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).parent.parent.resolve()))
 import httpx
 import os
 import uuid
@@ -10,7 +14,7 @@ load_dotenv()
 # Create FastMCP server
 mcp = FastMCP("openproject-server")
 
-from src.ragforge.config import OPENPROJECT_URL, OPENPROJECT_API_KEY, TEMPORAL_URL
+from src.ragforge.config import OPENPROJECT_URL, OPENPROJECT_API_KEY, TEMPORAL_URL, DEFAULT_COLLECTION
 
 # Connect to OpenProject
 openproject_url = OPENPROJECT_URL
@@ -168,6 +172,39 @@ async def add_task_comment(task_id: str, comment_text: str) -> str:
         return f"Success: Task comment addition requested via Temporal workflow. Workflow ID: {workflow_id}. Result: {result}"
     except Exception as e:
         return f"Error triggering workflow to add comment: {str(e)}"
+
+
+@mcp.tool()
+async def ingest_file_or_directory(
+    path: str, session_id: str | None = None
+) -> str:
+    """
+    Ingest a file or all files in a directory into the Qdrant vector database.
+    This triggers a reliable Temporal workflow to scan, parse, chunk, embed, and index the documents.
+    Arguments:
+    - path: Absolute path to the file or directory on the host filesystem.
+    - session_id: Optional session ID to tag the ingested documents.
+    """
+    try:
+        # Connect to Temporal Client
+        client = await Client.connect(temporal_url)
+
+        workflow_id = f"mcp-ingest-{uuid.uuid4()}"
+
+        result = await client.execute_workflow(
+            "IngestionWorkflow",
+            arg={"directory_path": path, "collection_name": DEFAULT_COLLECTION, "session_id": session_id},
+            id=workflow_id,
+            task_queue="ragforge-tasks",
+        )
+
+        return (
+            f"Success: Ingestion completed for path '{path}' into collection '{DEFAULT_COLLECTION}'. "
+            f"Processed {result.get('total_files', 0)} files ({result.get('total_chunks', 0)} chunks). "
+            f"Workflow ID: {workflow_id}."
+        )
+    except Exception as e:
+        return f"Error running ingestion workflow: {str(e)}"
 
 
 if __name__ == "__main__":
