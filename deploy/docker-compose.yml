@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # 1. PostgreSQL (For Temporal Backend)
@@ -12,7 +12,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ../data/postgres:/var/lib/postgresql/data
     networks:
       - ragforge-net
 
@@ -54,7 +54,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - ./data/qdrant:/qdrant/storage
+      - ../data/qdrant:/qdrant/storage
     networks:
       - ragforge-net
 
@@ -68,7 +68,7 @@ services:
       - OPENPROJECT_SECRET_KEY_BASE=supersecretkeybaseforlocaldev123456
       - OPENPROJECT_HTTPS=false
     volumes:
-      - ./data/openproject:/var/openproject/assets
+      - ../data/openproject:/var/openproject/assets
     networks:
       - ragforge-net
 
@@ -80,7 +80,6 @@ services:
       - "6006:6006" # Web Dashboard & OTLP Collector Endpoint
     networks:
       - ragforge-net
-
 
 networks:
   ragforge-net:
