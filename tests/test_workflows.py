@@ -1,6 +1,7 @@
 import pytest
 import uuid
 import asyncio
+from datetime import timedelta
 from dotenv import load_dotenv
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -61,6 +62,7 @@ async def test_workflows_end_to_end():
             },
             id=f"test-op-create-{uuid.uuid4()}",
             task_queue=task_queue,
+            execution_timeout=timedelta(minutes=2),
         )
         assert result_create["id"] is not None
         assert result_create["subject"] == "Temporal Test Workflow Task"
@@ -76,6 +78,7 @@ async def test_workflows_end_to_end():
             },
             id=f"test-op-update-{uuid.uuid4()}",
             task_queue=task_queue,
+            execution_timeout=timedelta(minutes=2),
         )
         assert result_update["id"] == task_id
         assert result_update["status"] == "In progress"
@@ -90,6 +93,7 @@ async def test_workflows_end_to_end():
             },
             id=f"test-op-comment-{uuid.uuid4()}",
             task_queue=task_queue,
+            execution_timeout=timedelta(minutes=2),
         )
         assert result_comment["id"] is not None
         assert "Workflow test comment." in result_comment["comment"]
@@ -110,6 +114,7 @@ async def test_workflows_end_to_end():
                 },
                 id=f"test-ingest-{uuid.uuid4()}",
                 task_queue=task_queue,
+                execution_timeout=timedelta(minutes=2),
             )
             assert result_ingestion["status"] == "SUCCESS"
             assert result_ingestion["total_files"] == 1
