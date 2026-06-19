@@ -7,6 +7,8 @@ general:
   mlflow_tracking_uri: "file:./mlruns"
   default_embedding_model: "nomic-embed-text"
   default_llm_model: "gemma4:e4b"
+  default_collection: "ragforge-collection"
+
 
 pdf:
   chunk_size: 1000
@@ -31,3 +33,11 @@ image:
 default:
   chunk_size: 800
   chunk_overlap: 100
+
+session_store:
+  type: "json"                   # "json" or "postgres"
+  postgres_url: "postgresql://temporal:temporal@localhost:5432/temporal"
+  json_dir: "./data/sessions"
+  chat_history_collection: "chat-history-collection"
+  rolling_window_turns: 3        # Number of recent user-assistant turns to keep in rolling memory
+
