@@ -1,0 +1,33 @@
+[project]
+name = "ragforge-mcp"
+version = "0.1.0"
+description = "Modular RAG chat engine using custom OpenProject and Qdrant MCP servers, orchestrated by Temporal"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=0.1.0",
+    "streamlit>=1.35.0",
+    "qdrant-client>=1.9.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.1",
+    "mlflow>=2.10.0",
+    "temporalio>=1.4.0",
+    "pymupdf>=1.23.0",
+    "openpyxl>=3.1.0",
+    "python-pptx>=0.6.0",
+    "easyocr>=1.7.0",
+    "pyyaml>=6.0.0",
+    "pytest>=8.0.0",
+    "arize-phoenix>=3.0.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0"
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["ragforge"]

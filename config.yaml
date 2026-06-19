@@ -1,0 +1,33 @@
+general:
+  ollama_url: "http://localhost:11434"
+  qdrant_url: "http://localhost:6333"
+  openproject_url: "http://localhost:8080"
+  temporal_url: "localhost:7233"
+  phoenix_collector_url: "http://localhost:6006/v1/traces"
+  mlflow_tracking_uri: "file:./mlruns"
+  default_embedding_model: "nomic-embed-text"
+  default_llm_model: "gemma4:e4b"
+
+pdf:
+  chunk_size: 1000
+  chunk_overlap: 150
+  extract_tables: true      # Extract tables as markdown representation
+  ocr_fallback: true       # Run OCR only if digital text extraction is empty
+  ocr_language: ["en"]
+
+excel:
+  row_batch_size: 15        # Group every 15 rows into a single semantic chunk
+  header_row: 1             # Assume row 1 contains table headers
+  sheet_mode: "all"         # "all" sheets or only the "first" sheet
+
+pptx:
+  slide_as_chunk: true      # Each slide is treated as a single self-contained chunk
+  prepend_slide_title: true # Prepends Slide Title to slide contents
+
+image:
+  ocr_engine: "easyocr"
+  ocr_languages: ["en"]
+
+default:
+  chunk_size: 800
+  chunk_overlap: 100
