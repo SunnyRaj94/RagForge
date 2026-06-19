@@ -26,7 +26,7 @@ show_status() {
     if ! docker info >/dev/null 2>&1; then
         echo -e "${RED}Docker daemon is not running.${NC}"
     else
-        docker compose -f "$COMPOSE_FILE" ps
+        docker compose -p ragforge -f "$COMPOSE_FILE" ps
     fi
 
     # 2. Check Ollama
@@ -65,7 +65,7 @@ start_services() {
         echo -e "${RED}Error: Docker daemon is not running. Please start Docker first.${NC}"
         exit 1
     fi
-    docker compose -f "$COMPOSE_FILE" up -d
+    docker compose -p ragforge -f "$COMPOSE_FILE" up -d
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}Docker containers started successfully.${NC}"
     else
@@ -154,7 +154,7 @@ stop_services() {
     # 4. Docker Containers
     echo -e "\n${YELLOW}Stopping Docker containers...${NC}"
     if docker info >/dev/null 2>&1; then
-        docker compose -f "$COMPOSE_FILE" down
+        docker compose -p ragforge -f "$COMPOSE_FILE" down
         echo -e "${GREEN}Docker containers stopped.${NC}"
     else
         echo -e "${RED}Docker daemon not running; skipping containers shutdown.${NC}"

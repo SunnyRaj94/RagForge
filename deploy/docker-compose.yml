@@ -67,6 +67,7 @@ services:
     environment:
       - OPENPROJECT_SECRET_KEY_BASE=supersecretkeybaseforlocaldev123456
       - OPENPROJECT_HTTPS=false
+      - OPENPROJECT_HOST__NAME=localhost:8080
     volumes:
       - ../data/openproject:/var/openproject/assets
     networks:
