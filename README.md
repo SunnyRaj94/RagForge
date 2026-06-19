@@ -92,6 +92,7 @@ RAGFORGE/
 │       ├── workflows/         # Temporal Workflow & Activity declarations
 │       │   ├── ingestion.py   # Dir scan, parse, index, and MLflow logging workflow
 │       │   └── openproject.py # OpenProject creates, updates, and comment activities
+│       ├── agents/            # Modular LangGraph Agents (e.g. agents/rag/)
 │       ├── worker.py          # Temporal Worker launcher
 │       └── utils/             # OTEL tracing hooks & decorators
 │
