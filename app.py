@@ -16,7 +16,6 @@ from src.ragforge.config import (
 )
 from src.ragforge.session_store import get_session_store
 
-
 load_dotenv()
 
 # Set up page configurations
@@ -224,7 +223,9 @@ def get_python_interpreter() -> str:
 
 
 # Setup sessions and RAG agent loop
-async def run_agent_turn(prompt: str, llm_model: str, recent_history: list = None, session_id: str = None) -> str:
+async def run_agent_turn(
+    prompt: str, llm_model: str, recent_history: list = None, session_id: str = None
+) -> str:
     python_bin = get_python_interpreter()
     app_dir = os.path.dirname(os.path.abspath(__file__))
     qdrant_script = os.path.join(app_dir, "servers", "qdrant_mcp.py")
@@ -540,41 +541,49 @@ with m_col3:
         unsafe_allow_html=True,
     )
 
+
 # Session store helper
 async def index_chat_turn_async(session_id: str, user_msg: str, assistant_msg: str):
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, VectorParams, PointStruct
     from datetime import datetime
-    from src.ragforge.config import QDRANT_URL, DEFAULT_EMBEDDING_MODEL, CHAT_HISTORY_COLLECTION
-    
+    from src.ragforge.config import (
+        QDRANT_URL,
+        DEFAULT_EMBEDDING_MODEL,
+        CHAT_HISTORY_COLLECTION,
+    )
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{OLLAMA_URL}/api/embeddings",
-                json={"model": DEFAULT_EMBEDDING_MODEL, "prompt": f"User: {user_msg}\nAssistant: {assistant_msg}"},
+                json={
+                    "model": DEFAULT_EMBEDDING_MODEL,
+                    "prompt": f"User: {user_msg}\nAssistant: {assistant_msg}",
+                },
                 timeout=30.0,
             )
             response.raise_for_status()
             vector = response.json()["embedding"]
-        
+
         q_client = QdrantClient(url=QDRANT_URL)
         if not q_client.collection_exists(CHAT_HISTORY_COLLECTION):
             q_client.create_collection(
                 collection_name=CHAT_HISTORY_COLLECTION,
-                vectors_config=VectorParams(size=768, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE),
             )
-        
+
         doc_id = str(uuid.uuid4())
         payload = {
             "text": f"User: {user_msg}\nAssistant: {assistant_msg}",
             "session_id": session_id,
             "user_message": user_msg,
             "assistant_message": assistant_msg,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
         q_client.upsert(
             collection_name=CHAT_HISTORY_COLLECTION,
-            points=[PointStruct(id=doc_id, vector=vector, payload=payload)]
+            points=[PointStruct(id=doc_id, vector=vector, payload=payload)],
         )
     except Exception as e:
         print(f"Failed to index chat turn to Qdrant: {str(e)}")
@@ -602,17 +611,22 @@ if "active_session_id" not in st.session_state:
 # Limit list to top 5 unique recent sessions, ensuring active session is always included
 recent_sessions = sessions[:5]
 if st.session_state.active_session_id not in [s["session_id"] for s in recent_sessions]:
-    active_details = next((s for s in sessions if s["session_id"] == st.session_state.active_session_id), None)
+    active_details = next(
+        (s for s in sessions if s["session_id"] == st.session_state.active_session_id),
+        None,
+    )
     if active_details:
         recent_sessions.append(active_details)
     else:
         active_details = store.load_session(st.session_state.active_session_id)
-        recent_sessions.append({
-            "session_id": active_details.get("session_id"),
-            "name": active_details.get("name"),
-            "created_at": active_details.get("created_at"),
-            "updated_at": active_details.get("updated_at")
-        })
+        recent_sessions.append(
+            {
+                "session_id": active_details.get("session_id"),
+                "name": active_details.get("name"),
+                "created_at": active_details.get("created_at"),
+                "updated_at": active_details.get("updated_at"),
+            }
+        )
 
 session_options = {s["session_id"]: s["name"] for s in recent_sessions}
 
@@ -620,7 +634,11 @@ selected_session_id = st.sidebar.selectbox(
     "Select Session",
     options=list(session_options.keys()),
     format_func=lambda x: session_options.get(x, x),
-    index=list(session_options.keys()).index(st.session_state.active_session_id) if st.session_state.active_session_id in session_options else 0
+    index=(
+        list(session_options.keys()).index(st.session_state.active_session_id)
+        if st.session_state.active_session_id in session_options
+        else 0
+    ),
 )
 
 if selected_session_id != st.session_state.active_session_id:
@@ -638,7 +656,11 @@ active_name = active_session.get("name", "New Chat Session")
 
 new_session_name = st.sidebar.text_input("Rename Session", value=active_name)
 if new_session_name != active_name and new_session_name.strip():
-    store.save_session(st.session_state.active_session_id, new_session_name, active_session.get("messages", []))
+    store.save_session(
+        st.session_state.active_session_id,
+        new_session_name,
+        active_session.get("messages", []),
+    )
     st.rerun()
 
 st.session_state.messages = active_session.get("messages", [])
@@ -662,10 +684,17 @@ if user_prompt := st.chat_input(
         with st.spinner("Agent is reasoning..."):
             try:
                 # Grab a rolling window of recent history (up to K turns = 2K messages)
-                recent_history = st.session_state.messages[:-1][-2 * ROLLING_WINDOW_TURNS:]
-                
+                recent_history = st.session_state.messages[:-1][
+                    -2 * ROLLING_WINDOW_TURNS :
+                ]
+
                 final_answer, thoughts = asyncio.run(
-                    run_agent_turn(user_prompt, selected_llm, recent_history, st.session_state.active_session_id)
+                    run_agent_turn(
+                        user_prompt,
+                        selected_llm,
+                        recent_history,
+                        st.session_state.active_session_id,
+                    )
                 )
 
                 # Render reasoning steps in expandable list
@@ -683,23 +712,21 @@ if user_prompt := st.chat_input(
                 st.session_state.messages.append(
                     {"role": "assistant", "content": final_answer}
                 )
-                
+
                 # Save session to persistent store
                 store.save_session(
                     st.session_state.active_session_id,
                     active_name,
-                    st.session_state.messages
+                    st.session_state.messages,
                 )
-                
+
                 # Index the chat turn to Qdrant for long-term semantic memory
                 asyncio.run(
                     index_chat_turn_async(
-                        st.session_state.active_session_id,
-                        user_prompt,
-                        final_answer
+                        st.session_state.active_session_id, user_prompt, final_answer
                     )
                 )
-                
+
             except Exception as ex:
                 import traceback
 
@@ -712,4 +739,3 @@ if user_prompt := st.chat_input(
                         sub_errors.append(f"- {type(sub_ex).__name__}: {str(sub_ex)}")
                     error_msg += "\n\nSub-exceptions details:\n" + "\n".join(sub_errors)
                 st.error(error_msg)
-

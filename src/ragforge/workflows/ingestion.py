@@ -146,7 +146,11 @@ class IngestionWorkflow:
         if all_chunks:
             index_result = await workflow.execute_activity(
                 embed_and_index_activity,
-                {"collection_name": collection_name, "chunks": all_chunks, "session_id": session_id},
+                {
+                    "collection_name": collection_name,
+                    "chunks": all_chunks,
+                    "session_id": session_id,
+                },
                 start_to_close_timeout=timedelta(minutes=15),
             )
 

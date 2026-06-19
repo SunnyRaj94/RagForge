@@ -15,7 +15,13 @@ load_dotenv()
 # Create FastMCP server
 mcp = FastMCP("qdrant-server")
 
-from src.ragforge.config import QDRANT_URL, OLLAMA_URL, DEFAULT_EMBEDDING_MODEL, CHAT_HISTORY_COLLECTION, DEFAULT_COLLECTION
+from src.ragforge.config import (
+    QDRANT_URL,
+    OLLAMA_URL,
+    DEFAULT_EMBEDDING_MODEL,
+    CHAT_HISTORY_COLLECTION,
+    DEFAULT_COLLECTION,
+)
 
 # Connect to Qdrant
 qdrant_client = QdrantClient(url=QDRANT_URL)
@@ -52,15 +58,18 @@ def create_collection(
 
 @mcp.tool()
 def upsert_documents(
-    collection_name: str = DEFAULT_COLLECTION, documents: list[dict] = None, session_id: str | None = None
+    collection_name: str = DEFAULT_COLLECTION,
+    documents: list[dict] = None,
+    session_id: str | None = None,
 ) -> str:
     """
     Upsert list of documents into Qdrant.
     Each document format: {"id": "optional-id", "text": "document text", "metadata": {}}
-    
+
     IMPORTANT: Do NOT specify or change collection_name. Always use the default value.
     Use session_id parameter to tag documents for the current session.
     """
+
     try:
         points = []
         for idx, doc in enumerate(documents):
@@ -105,28 +114,32 @@ def upsert_documents(
 
 @mcp.tool()
 def search_documents(
-    collection_name: str = DEFAULT_COLLECTION, query: str = "", session_id: str | None = None, limit: int = 5
+    collection_name: str = DEFAULT_COLLECTION,
+    query: str = "",
+    session_id: str | None = None,
+    limit: int = 5,
 ) -> str:
     """
     Query vector database using a text prompt.
     Returns matched documents with metadata attributes and score metric.
-    
+
     IMPORTANT: Do NOT specify or change collection_name. Always use the default value.
     Use session_id parameter to filter results for the current session.
     """
+
     try:
         if not qdrant_client.collection_exists(collection_name):
-            return f"No documents found (collection '{collection_name}' does not exist)."
+            return (
+                f"No documents found (collection '{collection_name}' does not exist)."
+            )
 
         from qdrant_client.models import Filter, FieldCondition, MatchValue
+
         query_filter = None
         if session_id:
             query_filter = Filter(
                 must=[
-                    FieldCondition(
-                        key="session_id",
-                        match=MatchValue(value=session_id)
-                    )
+                    FieldCondition(key="session_id", match=MatchValue(value=session_id))
                 ]
             )
 
@@ -135,7 +148,7 @@ def search_documents(
             collection_name=collection_name,
             query=query_vector,
             query_filter=query_filter,
-            limit=limit
+            limit=limit,
         )
         hits = response.points
 
@@ -156,7 +169,9 @@ def search_documents(
 
 
 @mcp.tool()
-def search_chat_history(query: str = "", session_id: str | None = None, limit: int = 5) -> str:
+def search_chat_history(
+    query: str = "", session_id: str | None = None, limit: int = 5
+) -> str:
     """
     Search past chat history and conversations for context using semantic search.
     Use this to recall details from previous chats or older messages in the current session.
@@ -169,16 +184,14 @@ def search_chat_history(query: str = "", session_id: str | None = None, limit: i
                 collection_name=CHAT_HISTORY_COLLECTION,
                 vectors_config=VectorParams(size=768, distance=Distance.COSINE),
             )
-        
+
         from qdrant_client.models import Filter, FieldCondition, MatchValue
+
         query_filter = None
         if session_id:
             query_filter = Filter(
                 must=[
-                    FieldCondition(
-                        key="session_id",
-                        match=MatchValue(value=session_id)
-                    )
+                    FieldCondition(key="session_id", match=MatchValue(value=session_id))
                 ]
             )
 
@@ -187,7 +200,7 @@ def search_chat_history(query: str = "", session_id: str | None = None, limit: i
             collection_name=CHAT_HISTORY_COLLECTION,
             query=query_vector,
             query_filter=query_filter,
-            limit=limit
+            limit=limit,
         )
         hits = response.points
 
@@ -209,4 +222,3 @@ def search_chat_history(query: str = "", session_id: str | None = None, limit: i
 
 if __name__ == "__main__":
     mcp.run()
-

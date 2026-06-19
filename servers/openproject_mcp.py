@@ -14,7 +14,12 @@ load_dotenv()
 # Create FastMCP server
 mcp = FastMCP("openproject-server")
 
-from src.ragforge.config import OPENPROJECT_URL, OPENPROJECT_API_KEY, TEMPORAL_URL, DEFAULT_COLLECTION
+from src.ragforge.config import (
+    OPENPROJECT_URL,
+    OPENPROJECT_API_KEY,
+    TEMPORAL_URL,
+    DEFAULT_COLLECTION,
+)
 
 # Connect to OpenProject
 openproject_url = OPENPROJECT_URL
@@ -175,9 +180,7 @@ async def add_task_comment(task_id: str, comment_text: str) -> str:
 
 
 @mcp.tool()
-async def ingest_file_or_directory(
-    path: str, session_id: str | None = None
-) -> str:
+async def ingest_file_or_directory(path: str, session_id: str | None = None) -> str:
     """
     Ingest a file or all files in a directory into the Qdrant vector database.
     This triggers a reliable Temporal workflow to scan, parse, chunk, embed, and index the documents.
@@ -193,7 +196,11 @@ async def ingest_file_or_directory(
 
         result = await client.execute_workflow(
             "IngestionWorkflow",
-            arg={"directory_path": path, "collection_name": DEFAULT_COLLECTION, "session_id": session_id},
+            arg={
+                "directory_path": path,
+                "collection_name": DEFAULT_COLLECTION,
+                "session_id": session_id,
+            },
             id=workflow_id,
             task_queue="ragforge-tasks",
         )

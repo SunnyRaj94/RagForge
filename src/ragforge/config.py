@@ -53,7 +53,9 @@ SESSION_STORE_TYPE = os.getenv(
 )
 SESSION_STORE_POSTGRES_URL = os.getenv(
     "SESSION_STORE_POSTGRES_URL",
-    session_store_cfg.get("postgres_url", "postgresql://temporal:temporal@localhost:5432/temporal"),
+    session_store_cfg.get(
+        "postgres_url", "postgresql://temporal:temporal@localhost:5432/temporal"
+    ),
 )
 SESSION_STORE_JSON_DIR = os.getenv(
     "SESSION_STORE_JSON_DIR", session_store_cfg.get("json_dir", "./data/sessions")
@@ -72,4 +74,3 @@ ROLLING_WINDOW_TURNS = int(
 
 def get_config_path() -> str:
     return str(CONFIG_PATH)
-
