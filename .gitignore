@@ -222,3 +222,6 @@ __marimo__/
 data/
 
 docs/superpowers/
+
+*.DS_Store
+*py.typed
