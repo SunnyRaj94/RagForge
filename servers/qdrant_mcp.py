@@ -1,4 +1,8 @@
 from mcp.server.fastmcp import FastMCP
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).parent.parent.resolve()))
 import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -11,7 +15,7 @@ load_dotenv()
 # Create FastMCP server
 mcp = FastMCP("qdrant-server")
 
-from src.ragforge.config import QDRANT_URL, OLLAMA_URL, DEFAULT_EMBEDDING_MODEL
+from src.ragforge.config import QDRANT_URL, OLLAMA_URL, DEFAULT_EMBEDDING_MODEL, CHAT_HISTORY_COLLECTION, DEFAULT_COLLECTION
 
 # Connect to Qdrant
 qdrant_client = QdrantClient(url=QDRANT_URL)
@@ -32,7 +36,9 @@ def get_embeddings(text: str) -> list[float]:
 
 
 @mcp.tool()
-def create_collection(collection_name: str, vector_size: int = 768) -> str:
+def create_collection(
+    collection_name: str = "ragforge-collection", vector_size: int = 768
+) -> str:
     """Create a vector collection in Qdrant with specified name and vector dimension size."""
     try:
         qdrant_client.create_collection(
@@ -45,10 +51,15 @@ def create_collection(collection_name: str, vector_size: int = 768) -> str:
 
 
 @mcp.tool()
-def upsert_documents(collection_name: str, documents: list[dict]) -> str:
+def upsert_documents(
+    collection_name: str = DEFAULT_COLLECTION, documents: list[dict] = None, session_id: str | None = None
+) -> str:
     """
     Upsert list of documents into Qdrant.
     Each document format: {"id": "optional-id", "text": "document text", "metadata": {}}
+    
+    IMPORTANT: Do NOT specify or change collection_name. Always use the default value.
+    Use session_id parameter to tag documents for the current session.
     """
     try:
         points = []
@@ -69,6 +80,8 @@ def upsert_documents(collection_name: str, documents: list[dict]) -> str:
 
             text = doc.get("text", "")
             metadata = doc.get("metadata", {})
+            if session_id:
+                metadata["session_id"] = session_id
 
             # Generate embedding
             vector = get_embeddings(text)
@@ -77,6 +90,13 @@ def upsert_documents(collection_name: str, documents: list[dict]) -> str:
             payload = {"text": text, **metadata}
             points.append(PointStruct(id=doc_id, vector=vector, payload=payload))
 
+        # Ensure collection exists
+        if not qdrant_client.collection_exists(collection_name):
+            qdrant_client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+            )
+
         qdrant_client.upsert(collection_name=collection_name, points=points)
         return f"Successfully upserted {len(documents)} documents into collection '{collection_name}'."
     except Exception as e:
@@ -84,15 +104,38 @@ def upsert_documents(collection_name: str, documents: list[dict]) -> str:
 
 
 @mcp.tool()
-def search_documents(collection_name: str, query: str, limit: int = 5) -> str:
+def search_documents(
+    collection_name: str = DEFAULT_COLLECTION, query: str = "", session_id: str | None = None, limit: int = 5
+) -> str:
     """
     Query vector database using a text prompt.
     Returns matched documents with metadata attributes and score metric.
+    
+    IMPORTANT: Do NOT specify or change collection_name. Always use the default value.
+    Use session_id parameter to filter results for the current session.
     """
     try:
+        if not qdrant_client.collection_exists(collection_name):
+            return f"No documents found (collection '{collection_name}' does not exist)."
+
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        query_filter = None
+        if session_id:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="session_id",
+                        match=MatchValue(value=session_id)
+                    )
+                ]
+            )
+
         query_vector = get_embeddings(query)
         response = qdrant_client.query_points(
-            collection_name=collection_name, query=query_vector, limit=limit
+            collection_name=collection_name,
+            query=query_vector,
+            query_filter=query_filter,
+            limit=limit
         )
         hits = response.points
 
@@ -112,5 +155,58 @@ def search_documents(collection_name: str, query: str, limit: int = 5) -> str:
         return f"Error querying documents: {str(e)}"
 
 
+@mcp.tool()
+def search_chat_history(query: str = "", session_id: str | None = None, limit: int = 5) -> str:
+    """
+    Search past chat history and conversations for context using semantic search.
+    Use this to recall details from previous chats or older messages in the current session.
+    Optional session_id filters results to only matching sessions.
+    """
+    try:
+        # Create chat history collection if not exists (768 dimensions for nomic-embed-text)
+        if not qdrant_client.collection_exists(CHAT_HISTORY_COLLECTION):
+            qdrant_client.create_collection(
+                collection_name=CHAT_HISTORY_COLLECTION,
+                vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+            )
+        
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        query_filter = None
+        if session_id:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="session_id",
+                        match=MatchValue(value=session_id)
+                    )
+                ]
+            )
+
+        query_vector = get_embeddings(query)
+        response = qdrant_client.query_points(
+            collection_name=CHAT_HISTORY_COLLECTION,
+            query=query_vector,
+            query_filter=query_filter,
+            limit=limit
+        )
+        hits = response.points
+
+        results = []
+        for hit in hits:
+            payload = hit.payload or {}
+            text = payload.get("text", "")
+            # Filter text out of the metadata dictionary
+            metadata = {k: v for k, v in payload.items() if k != "text"}
+            results.append(f"- [Score: {hit.score:.4f}] {text}\n  Lineage: {metadata}")
+
+        if not results:
+            return "No matching chat history found."
+
+        return "\n\n".join(results)
+    except Exception as e:
+        return f"Error querying chat history: {str(e)}"
+
+
 if __name__ == "__main__":
     mcp.run()
+
