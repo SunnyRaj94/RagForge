@@ -138,7 +138,7 @@ st.markdown(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def get_ollama_models() -> list[str]:
+def get_ollama_llm_models() -> list[str]:
     try:
         res = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=5.0)
         models = res.json().get("models", [])
@@ -148,6 +148,18 @@ def get_ollama_models() -> list[str]:
         ]
     except Exception:
         return ["gemma4:e4b"]
+
+
+def get_ollama_embedding_models() -> list[str]:
+    try:
+        res = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=5.0)
+        models = res.json().get("models", [])
+        return [
+            m["name"] for m in models
+            if "embed" in m["name"].lower()
+        ]
+    except Exception:
+        return ["embeddinggemma:latest"]
 
 
 def get_openproject_stats() -> tuple[str, int, int]:
@@ -161,14 +173,31 @@ def get_openproject_stats() -> tuple[str, int, int]:
 
 
 # ── Sidebar — model picker ────────────────────────────────────────────────────
-st.sidebar.markdown("<h3 style='font-weight:700;'>⚙️ Model</h3>", unsafe_allow_html=True)
-available_models = get_ollama_models()
-default_idx = 0
-for model_candidate in ["qwen2.5-coder:latest", DEFAULT_LLM_MODEL]:
-    if model_candidate in available_models:
-        default_idx = available_models.index(model_candidate)
-        break
-selected_llm = st.sidebar.selectbox("LLM Model", available_models, index=default_idx)
+st.sidebar.markdown("<h3 style='font-weight:700;'>⚙️ Models</h3>", unsafe_allow_html=True)
+
+# 1. Chat Completion Model selection (default: gemma4:e4b)
+available_llms = get_ollama_llm_models()
+llm_idx = 0
+if "gemma4:e4b" in available_llms:
+    llm_idx = available_llms.index("gemma4:e4b")
+elif DEFAULT_LLM_MODEL in available_llms:
+    llm_idx = available_llms.index(DEFAULT_LLM_MODEL)
+
+selected_llm = st.sidebar.selectbox("LLM Model (Chat)", available_llms, index=llm_idx)
+
+# 2. Embedding Model selection (default: embeddinggemma:latest)
+available_embeddings = get_ollama_embedding_models()
+embed_idx = 0
+if "embeddinggemma:latest" in available_embeddings:
+    embed_idx = available_embeddings.index("embeddinggemma:latest")
+elif DEFAULT_EMBEDDING_MODEL in available_embeddings:
+    embed_idx = available_embeddings.index(DEFAULT_EMBEDDING_MODEL)
+
+selected_embedding = st.sidebar.selectbox("Embedding Model", available_embeddings, index=embed_idx)
+
+# Propagate selected embedding model to environment variables
+import os
+os.environ["DEFAULT_EMBEDDING_MODEL"] = selected_embedding
 
 # ── Sidebar — session management ─────────────────────────────────────────────
 st.sidebar.markdown("---")
@@ -271,13 +300,15 @@ with mc3:
 # ── Agent initialisation (cached per session + model) ────────────────────────
 
 @st.cache_resource(show_spinner="Connecting to MCP servers & building agent graph…")
-def get_agent(llm_model: str, session_id: str) -> RagForgeAgent:
+def get_agent(llm_model: str, embedding_model: str, session_id: str) -> RagForgeAgent:
+    import os
+    os.environ["DEFAULT_EMBEDDING_MODEL"] = embedding_model
     agent = RagForgeAgent(llm_model=llm_model, session_id=session_id)
     asyncio.run(agent.initialise())
     return agent
 
 
-agent: RagForgeAgent = get_agent(selected_llm, st.session_state.active_session_id)
+agent: RagForgeAgent = get_agent(selected_llm, selected_embedding, st.session_state.active_session_id)
 
 # Thread config — each session gets its own LangGraph thread for checkpoint isolation
 thread_config = {"configurable": {"thread_id": st.session_state.active_session_id}}
@@ -309,6 +340,116 @@ if "thoughts" in st.session_state and st.session_state.thoughts:
         for t_type, t_val in st.session_state.thoughts:
             label = "**Thought:**" if t_type == "thought" else "**Observation:**"
             st.markdown(f"{label} {t_val}")
+
+# ── Execute Agent for New Query ───────────────────────────────────────────────
+if "pending_query" in st.session_state and st.session_state.pending_query:
+    user_prompt = st.session_state.pop("pending_query")
+    st.session_state.pending_user_prompt = user_prompt
+    
+    with st.chat_message("assistant"):
+        thought_placeholder = st.empty()
+        thoughts: list[tuple[str, str]] = []
+        
+        def render_thoughts():
+            with thought_placeholder.container():
+                for t_type, t_val in thoughts:
+                    css_class = "thought-container" if t_type == "thought" else "observation-container"
+                    header = "Thought" if t_type == "thought" else "Observation"
+                    header_class = "thought-header" if t_type == "thought" else "observation-header"
+                    st.markdown(
+                        f"<div class='{css_class}'>"
+                        f"<div class='{header_class}'>{header}</div>{t_val}</div>",
+                        unsafe_allow_html=True,
+                    )
+        
+        with st.spinner("Agent is reasoning…"):
+            try:
+                # Stream graph execution
+                input_state = {
+                    "messages": [HumanMessage(content=user_prompt)],
+                    "session_id": st.session_state.active_session_id,
+                    "pending_tool_call": None,
+                    "hitl_approved": None,
+                }
+
+                final_answer = ""
+                seen_ids = set()
+
+                async def run_and_stream():
+                    is_interrupted = False
+                    async for event in agent.graph.astream(
+                        input_state,
+                        config=thread_config,
+                        stream_mode="values",
+                    ):
+                        msgs = event.get("messages", [])
+                        for m in msgs:
+                            msg_id = getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                            if msg_id in seen_ids:
+                                continue
+                            seen_ids.add(msg_id)
+
+                            if isinstance(m, AIMessage):
+                                if m.tool_calls:
+                                    for tc in m.tool_calls:
+                                        thoughts.append(
+                                            ("thought", f"Calling tool **`{tc['name']}`** with args:<br><code>{json.dumps(tc['args'], indent=2)}</code>")
+                                        )
+                                    render_thoughts()
+                                elif m.content:
+                                    thoughts.append(("thought", m.content))
+                                    render_thoughts()
+                            elif isinstance(m, ToolMessage):
+                                thoughts.append(("observation", m.content[:600]))
+                                render_thoughts()
+
+                        # Check if graph is interrupted (waiting for HITL)
+                        pending = event.get("pending_tool_call")
+                        if pending and event.get("hitl_approved") is None:
+                            is_interrupted = True
+                            st.session_state.hitl_pending = True
+                            st.session_state.hitl_tool_name = pending["name"]
+                            st.session_state.hitl_tool_args = pending["args"]
+                            break
+                    return is_interrupted
+
+                interrupted = asyncio.run(run_and_stream())
+                st.session_state.thoughts = thoughts
+
+                if not interrupted:
+                    thought_placeholder.empty()
+                    # Extract final assistant message
+                    snapshot = agent.graph.get_state(thread_config)
+                    for m in reversed(snapshot.values.get("messages", [])):
+                        if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                            final_answer = m.content
+                            break
+
+                    if final_answer:
+                        st.markdown(final_answer)
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": final_answer}
+                        )
+                        store.save_session(
+                            st.session_state.active_session_id,
+                            active_name,
+                            st.session_state.messages,
+                        )
+                        asyncio.run(
+                            index_chat_turn(
+                                st.session_state.active_session_id,
+                                user_prompt,
+                                final_answer,
+                            )
+                        )
+                else:
+                    thought_placeholder.empty()
+                    st.rerun()
+
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                st.error(f"Agent error: {str(ex)}")
 
 # ── HITL resume state ─────────────────────────────────────────────────────────
 if "hitl_pending" not in st.session_state:
@@ -345,6 +486,11 @@ if st.session_state.hitl_pending:
                 
                 async def resume_and_stream():
                     ans = ""
+                    # Initialize seen_ids with existing messages in the graph state
+                    snapshot = agent.graph.get_state(thread_config)
+                    existing_msgs = snapshot.values.get("messages", [])
+                    seen_ids = {m.id for m in existing_msgs if getattr(m, "id", None)}
+
                     async for event in agent.graph.astream(
                         None,
                         config=thread_config,
@@ -352,13 +498,16 @@ if st.session_state.hitl_pending:
                     ):
                         msgs = event.get("messages", [])
                         for m in msgs:
+                            msg_id = getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                            if msg_id in seen_ids:
+                                continue
+                            seen_ids.add(msg_id)
+
                             if isinstance(m, ToolMessage):
                                 obs_text = f"Calling tool **`{m.name}`** returned:<br><code>{m.content}</code>"
-                                if ("observation", obs_text) not in thoughts:
-                                    thoughts.append(("observation", obs_text))
+                                thoughts.append(("observation", obs_text))
                             elif isinstance(m, AIMessage) and m.content:
-                                if ("thought", m.content) not in thoughts:
-                                    thoughts.append(("thought", m.content))
+                                thoughts.append(("thought", m.content))
                         
                         for m in reversed(msgs):
                             if isinstance(m, AIMessage) and not m.tool_calls and m.content:
@@ -397,6 +546,11 @@ if st.session_state.hitl_pending:
             
             async def reject_and_stream():
                 ans = ""
+                # Initialize seen_ids with existing messages in the graph state
+                snapshot = agent.graph.get_state(thread_config)
+                existing_msgs = snapshot.values.get("messages", [])
+                seen_ids = {m.id for m in existing_msgs if getattr(m, "id", None)}
+
                 async for event in agent.graph.astream(
                     None,
                     config=thread_config,
@@ -404,14 +558,17 @@ if st.session_state.hitl_pending:
                 ):
                     msgs = event.get("messages", [])
                     for m in msgs:
+                        msg_id = getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                        if msg_id in seen_ids:
+                            continue
+                        seen_ids.add(msg_id)
+
                         if isinstance(m, ToolMessage):
                             obs_text = f"Tool rejection status logged:<br><code>{m.content}</code>"
-                            if ("observation", obs_text) not in thoughts:
-                                thoughts.append(("observation", obs_text))
+                            thoughts.append(("observation", obs_text))
                         elif isinstance(m, AIMessage) and m.content:
-                            if ("thought", m.content) not in thoughts:
-                                thoughts.append(("thought", m.content))
-                                
+                            thoughts.append(("thought", m.content))
+                            
                     for m in reversed(msgs):
                         if isinstance(m, AIMessage) and not m.tool_calls and m.content:
                             ans = m.content
@@ -436,7 +593,7 @@ if st.session_state.hitl_pending:
 if not st.session_state.hitl_pending:
     if user_prompt := st.chat_input("Ask a question or request a task…"):
         st.session_state.messages.append({"role": "user", "content": user_prompt})
-        st.session_state.pending_user_prompt = user_prompt
+        st.session_state.pending_query = user_prompt
         # Clear thoughts of previous query
         st.session_state.pop("thoughts", None)
         # Save to store immediately so it's not lost on rerun/interrupt
@@ -445,104 +602,4 @@ if not st.session_state.hitl_pending:
             active_name,
             st.session_state.messages,
         )
-        with st.chat_message("user"):
-            st.markdown(user_prompt)
-
-        with st.chat_message("assistant"):
-            thought_placeholder = st.empty()
-            thoughts: list[tuple[str, str]] = []
-
-            def render_thoughts():
-                with thought_placeholder.container():
-                    for t_type, t_val in thoughts:
-                        css_class = "thought-container" if t_type == "thought" else "observation-container"
-                        header = "Thought" if t_type == "thought" else "Observation"
-                        header_class = "thought-header" if t_type == "thought" else "observation-header"
-                        st.markdown(
-                            f"<div class='{css_class}'>"
-                            f"<div class='{header_class}'>{header}</div>{t_val}</div>",
-                            unsafe_allow_html=True,
-                        )
-
-            with st.spinner("Agent is reasoning…"):
-                try:
-                    # Stream graph execution
-                    input_state = {
-                        "messages": [HumanMessage(content=user_prompt)],
-                        "session_id": st.session_state.active_session_id,
-                        "pending_tool_call": None,
-                        "hitl_approved": None,
-                    }
-
-                    final_answer = ""
-
-                    async def run_and_stream():
-                        is_interrupted = False
-                        async for event in agent.graph.astream(
-                            input_state,
-                            config=thread_config,
-                            stream_mode="values",
-                        ):
-                            msgs = event.get("messages", [])
-                            for m in msgs:
-                                if isinstance(m, AIMessage):
-                                    if m.tool_calls:
-                                        for tc in m.tool_calls:
-                                            thoughts.append(
-                                                ("thought", f"Calling tool **`{tc['name']}`** with args:<br><code>{json.dumps(tc['args'], indent=2)}</code>")
-                                            )
-                                        render_thoughts()
-                                    elif m.content:
-                                        thoughts.append(("thought", m.content))
-                                        render_thoughts()
-                                elif isinstance(m, ToolMessage):
-                                    thoughts.append(("observation", m.content[:600]))
-                                    render_thoughts()
-
-                            # Check if graph is interrupted (waiting for HITL)
-                            pending = event.get("pending_tool_call")
-                            if pending and event.get("hitl_approved") is None:
-                                is_interrupted = True
-                                st.session_state.hitl_pending = True
-                                st.session_state.hitl_tool_name = pending["name"]
-                                st.session_state.hitl_tool_args = pending["args"]
-                                break
-                        return is_interrupted
-
-                    interrupted = asyncio.run(run_and_stream())
-                    st.session_state.thoughts = thoughts
-
-                    if not interrupted:
-                        thought_placeholder.empty()
-                        # Extract final assistant message
-                        snapshot = agent.graph.get_state(thread_config)
-                        for m in reversed(snapshot.values.get("messages", [])):
-                            if isinstance(m, AIMessage) and not m.tool_calls and m.content:
-                                final_answer = m.content
-                                break
-
-                        if final_answer:
-                            st.markdown(final_answer)
-                            st.session_state.messages.append(
-                                {"role": "assistant", "content": final_answer}
-                            )
-                            store.save_session(
-                                st.session_state.active_session_id,
-                                active_name,
-                                st.session_state.messages,
-                            )
-                            asyncio.run(
-                                index_chat_turn(
-                                    st.session_state.active_session_id,
-                                    user_prompt,
-                                    final_answer,
-                                )
-                            )
-                    else:
-                        thought_placeholder.empty()
-                        st.rerun()
-
-                except Exception as ex:
-                    import traceback
-                    traceback.print_exc()
-                    st.error(f"Agent error: {str(ex)}")
+        st.rerun()

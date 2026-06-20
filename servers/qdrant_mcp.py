@@ -32,9 +32,11 @@ ollama_url = OLLAMA_URL
 
 def get_embeddings(text: str) -> list[float]:
     """Generates embedding vector from local Ollama model."""
+    import os
+    model_id = os.getenv("DEFAULT_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
     response = httpx.post(
         f"{ollama_url}/api/embeddings",
-        json={"model": DEFAULT_EMBEDDING_MODEL, "prompt": text},
+        json={"model": model_id, "prompt": text},
         timeout=30.0,
     )
     response.raise_for_status()

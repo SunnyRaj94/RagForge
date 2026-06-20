@@ -478,9 +478,10 @@ async def index_chat_turn(session_id: str, user_msg: str, assistant_msg: str):
     )
     try:
         async with httpx.AsyncClient() as client:
+            model_id = os.getenv("DEFAULT_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
             resp = await client.post(
                 f"{OLLAMA_URL}/api/embeddings",
-                json={"model": DEFAULT_EMBEDDING_MODEL, "prompt": text},
+                json={"model": model_id, "prompt": text},
                 timeout=30.0,
             )
             resp.raise_for_status()
