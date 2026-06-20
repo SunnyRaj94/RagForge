@@ -70,6 +70,7 @@ services:
       - OPENPROJECT_HOST__NAME=localhost:8080
     volumes:
       - ../data/openproject:/var/openproject/assets
+      - ../data/openproject_pgdata:/var/openproject/pgdata
     networks:
       - ragforge-net
 

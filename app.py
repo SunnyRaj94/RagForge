@@ -181,8 +181,10 @@ if "active_session_id" not in st.session_state:
     if sessions:
         st.session_state.active_session_id = sessions[0]["session_id"]
     else:
+        from datetime import datetime
+        default_name = datetime.now().strftime("%Y-%b%d-%H%M").lower()
         new_sid = str(uuid.uuid4())
-        store.save_session(new_sid, "New Chat Session", [])
+        store.save_session(new_sid, default_name, [])
         st.session_state.active_session_id = new_sid
         sessions = store.list_sessions()
 
@@ -214,23 +216,27 @@ if selected_session_id != st.session_state.active_session_id:
     st.rerun()
 
 if st.sidebar.button("➕ New Chat Session", use_container_width=True):
+    from datetime import datetime
+    default_name = datetime.now().strftime("%Y-%b%d-%H%M").lower()
     new_sid = str(uuid.uuid4())
-    store.save_session(new_sid, "New Chat Session", [])
+    store.save_session(new_sid, default_name, [])
     st.session_state.active_session_id = new_sid
     st.session_state.pop("agent", None)
     st.rerun()
 
 active_session = store.load_session(st.session_state.active_session_id)
-active_name = active_session.get("name", "New Chat Session")
+active_name = active_session.get("name", "Chat Session")
 
-new_session_name = st.sidebar.text_input("Rename Session", value=active_name)
-if new_session_name != active_name and new_session_name.strip():
-    store.save_session(
-        st.session_state.active_session_id,
-        new_session_name,
-        active_session.get("messages", []),
-    )
-    st.rerun()
+with st.sidebar.form("rename_form", clear_on_submit=False):
+    new_session_name = st.text_input("Rename Session", value=active_name)
+    submit_rename = st.form_submit_button("Save New Name", use_container_width=True)
+    if submit_rename and new_session_name.strip() and new_session_name != active_name:
+        store.save_session(
+            st.session_state.active_session_id,
+            new_session_name,
+            active_session.get("messages", []),
+        )
+        st.rerun()
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("<h1 class='main-title'>RagForge RAG Agent</h1>", unsafe_allow_html=True)
@@ -297,6 +303,13 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+# ── Render active reasoning trace (if any) ──────────────────────────────────
+if "thoughts" in st.session_state and st.session_state.thoughts:
+    with st.expander("🔍 Latest Agent Reasoning & Tool Execution Trace", expanded=False):
+        for t_type, t_val in st.session_state.thoughts:
+            label = "**Thought:**" if t_type == "thought" else "**Observation:**"
+            st.markdown(f"{label} {t_val}")
+
 # ── HITL resume state ─────────────────────────────────────────────────────────
 if "hitl_pending" not in st.session_state:
     st.session_state.hitl_pending = False
@@ -325,17 +338,36 @@ if st.session_state.hitl_pending:
             # Resume graph with approval
             with st.spinner("Executing approved tool…"):
                 state_update = {"hitl_approved": True, "pending_tool_call": None}
-                events = run_async_stream(state_update, thread_config)
-                # Grab final answer from last AIMessage without tool calls
-                final_answer = ""
-                for event in reversed(events):
-                    msgs = event.get("messages", [])
-                    for m in reversed(msgs):
-                        if isinstance(m, AIMessage) and not m.tool_calls and m.content:
-                            final_answer = m.content
-                            break
-                    if final_answer:
-                        break
+                agent.graph.update_state(thread_config, state_update, as_node="check_hitl")
+                
+                # Fetch existing thoughts and append new events
+                thoughts = list(st.session_state.get("thoughts", []))
+                
+                async def resume_and_stream():
+                    ans = ""
+                    async for event in agent.graph.astream(
+                        None,
+                        config=thread_config,
+                        stream_mode="values",
+                    ):
+                        msgs = event.get("messages", [])
+                        for m in msgs:
+                            if isinstance(m, ToolMessage):
+                                obs_text = f"Calling tool **`{m.name}`** returned:<br><code>{m.content}</code>"
+                                if ("observation", obs_text) not in thoughts:
+                                    thoughts.append(("observation", obs_text))
+                            elif isinstance(m, AIMessage) and m.content:
+                                if ("thought", m.content) not in thoughts:
+                                    thoughts.append(("thought", m.content))
+                        
+                        for m in reversed(msgs):
+                            if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                                ans = m.content
+                                break
+                    return ans
+                
+                final_answer = asyncio.run(resume_and_stream())
+                st.session_state.thoughts = thoughts
 
             st.session_state.hitl_pending = False
             if final_answer:
@@ -359,16 +391,35 @@ if st.session_state.hitl_pending:
     with col_reject:
         if st.button("❌ Reject", use_container_width=True):
             state_update = {"hitl_approved": False, "pending_tool_call": None}
-            events = run_async_stream(state_update, thread_config)
-            final_answer = "Action was rejected by you. Let me know how else I can help."
-            for event in reversed(events):
-                msgs = event.get("messages", [])
-                for m in reversed(msgs):
-                    if isinstance(m, AIMessage) and not m.tool_calls and m.content:
-                        final_answer = m.content
-                        break
-                if final_answer:
-                    break
+            agent.graph.update_state(thread_config, state_update, as_node="check_hitl")
+            
+            thoughts = list(st.session_state.get("thoughts", []))
+            
+            async def reject_and_stream():
+                ans = ""
+                async for event in agent.graph.astream(
+                    None,
+                    config=thread_config,
+                    stream_mode="values",
+                ):
+                    msgs = event.get("messages", [])
+                    for m in msgs:
+                        if isinstance(m, ToolMessage):
+                            obs_text = f"Tool rejection status logged:<br><code>{m.content}</code>"
+                            if ("observation", obs_text) not in thoughts:
+                                thoughts.append(("observation", obs_text))
+                        elif isinstance(m, AIMessage) and m.content:
+                            if ("thought", m.content) not in thoughts:
+                                thoughts.append(("thought", m.content))
+                                
+                    for m in reversed(msgs):
+                        if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                            ans = m.content
+                            break
+                return ans
+                            
+            final_answer = asyncio.run(reject_and_stream())
+            st.session_state.thoughts = thoughts
 
             st.session_state.hitl_pending = False
             with st.chat_message("assistant"):
@@ -386,6 +437,14 @@ if not st.session_state.hitl_pending:
     if user_prompt := st.chat_input("Ask a question or request a task…"):
         st.session_state.messages.append({"role": "user", "content": user_prompt})
         st.session_state.pending_user_prompt = user_prompt
+        # Clear thoughts of previous query
+        st.session_state.pop("thoughts", None)
+        # Save to store immediately so it's not lost on rerun/interrupt
+        store.save_session(
+            st.session_state.active_session_id,
+            active_name,
+            st.session_state.messages,
+        )
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
@@ -451,6 +510,7 @@ if not st.session_state.hitl_pending:
                         return is_interrupted
 
                     interrupted = asyncio.run(run_and_stream())
+                    st.session_state.thoughts = thoughts
 
                     if not interrupted:
                         thought_placeholder.empty()
@@ -478,13 +538,6 @@ if not st.session_state.hitl_pending:
                                     final_answer,
                                 )
                             )
-
-                        # Render reasoning trace in expander
-                        if thoughts:
-                            with st.expander("🔍 Agent Reasoning & Tool Execution Trace"):
-                                for t_type, t_val in thoughts:
-                                    label = "**Thought:**" if t_type == "thought" else "**Observation:**"
-                                    st.markdown(f"{label} {t_val}")
                     else:
                         thought_placeholder.empty()
                         st.rerun()

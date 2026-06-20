@@ -316,6 +316,9 @@ class RagForgeAgent:
             For each pending tool call check if it is a write operation.
             If so, mark pending_tool_call so the router pauses for HITL.
             """
+            if state.get("hitl_approved") is not None:
+                return {}
+
             last = state["messages"][-1]
             if not isinstance(last, AIMessage) or not last.tool_calls:
                 return {"pending_tool_call": None}
@@ -381,6 +384,11 @@ class RagForgeAgent:
                 "hitl_approved": None,
             }
 
+        # ── node: hitl_pause ─────────────────────────────────────────────────
+        async def hitl_pause_node(state: AgentState):
+            """Placeholder node for pausing before write operations."""
+            return {}
+
         # ── router ────────────────────────────────────────────────────────────
         def route_after_agent(state: AgentState) -> Literal["check_hitl", "__end__"]:
             last = state["messages"][-1]
@@ -408,6 +416,7 @@ class RagForgeAgent:
         builder.add_node("check_hitl", check_hitl_node)
         builder.add_node("execute_tools", execute_tools_node)
         builder.add_node("reject_tool", reject_tool_node)
+        builder.add_node("hitl_pause", hitl_pause_node)
 
         builder.add_edge(START, "agent")
         builder.add_conditional_edges("agent", route_after_agent)
@@ -417,17 +426,17 @@ class RagForgeAgent:
             {
                 "execute_tools": "execute_tools",
                 "reject_tool": "reject_tool",
-                "hitl_pause": END,
+                "hitl_pause": "hitl_pause",
             },
         )
+        builder.add_edge("hitl_pause", "check_hitl")
         builder.add_edge("execute_tools", "agent")
         builder.add_edge("reject_tool", "agent")
 
-        # hitl_pause is a virtual node: we interrupt here by raising NodeInterrupt
-        # In practice we handle this at app level via interrupt_before
+        # Compile with interrupt BEFORE hitl_pause node only!
         self._graph = builder.compile(
             checkpointer=self.checkpointer,
-            interrupt_before=["execute_tools"],  # pause before any tool execution
+            interrupt_before=["hitl_pause"],  # pause only when hitl_pause is reached
         )
         return self._graph
 
