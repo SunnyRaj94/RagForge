@@ -133,13 +133,14 @@ def search_documents(
                 f"No documents found (collection '{collection_name}' does not exist)."
             )
 
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        from qdrant_client.models import Filter, FieldCondition, MatchValue, IsEmptyCondition, PayloadField
 
         query_filter = None
         if session_id:
             query_filter = Filter(
-                must=[
-                    FieldCondition(key="session_id", match=MatchValue(value=session_id))
+                should=[
+                    FieldCondition(key="session_id", match=MatchValue(value=session_id)),
+                    IsEmptyCondition(is_empty=PayloadField(key="session_id")),
                 ]
             )
 

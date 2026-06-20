@@ -279,7 +279,9 @@ class RagForgeAgent:
                     )
                     resp.raise_for_status()
                 except httpx.HTTPStatusError as e:
-                    print(f"Ollama Request Payload: messages={payload_messages}, tools={tools_payload}")
+                    print(
+                        f"Ollama Request Payload: messages={payload_messages}, tools={tools_payload}"
+                    )
                     print(f"Ollama Error Response: {resp.text}")
                     raise e
                 data = resp.json()
