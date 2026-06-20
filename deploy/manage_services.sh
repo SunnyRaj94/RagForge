@@ -80,7 +80,7 @@ start_services() {
     else
         echo -e "${YELLOW}Ollama is not running. Starting Ollama in background...${NC}"
         if command -v ollama >/dev/null 2>&1; then
-            nohup OLLAMA_CONTEXT_LENGTH=65536 OLLAMA_FLASH_ATTENTION=true OLLAMA_KEEP_ALIVE="-1" OLLAMA_MAX_LOADED_MODELS=1 ollama serve > "$PROJECT_ROOT/data/logs/ollama.log" 2>&1 &
+            OLLAMA_CONTEXT_LENGTH=65536 OLLAMA_FLASH_ATTENTION=true OLLAMA_KEEP_ALIVE="-1" OLLAMA_MAX_LOADED_MODELS=1 nohup ollama serve > "$PROJECT_ROOT/data/logs/ollama.log" 2>&1 &
             sleep 3
             if lsof -i :11434 >/dev/null 2>&1; then
                 echo -e "${GREEN}Ollama started successfully.${NC}"
