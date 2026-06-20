@@ -5,7 +5,7 @@ general:
   temporal_url: "localhost:7233"
   phoenix_collector_url: "http://localhost:6006/v1/traces"
   mlflow_tracking_uri: "sqlite:///data/mlflow.db"
-  default_embedding_model: "nomic-embed-text"
+  default_embedding_model: "embeddinggemma:latest"
   default_llm_model: "gemma4:e4b"
   default_collection: "ragforge-collection"
 
