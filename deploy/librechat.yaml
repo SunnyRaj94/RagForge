@@ -1,0 +1,22 @@
+# LibreChat Configuration File
+# Documentation: https://www.librechat.ai/docs/configuration/librechat_yaml
+
+version: 1.1.5
+
+cache: true
+
+# Configures the endpoints available in the UI
+endpoints:
+  # Expose our custom FastAPI backend as an OpenAI-compatible agent endpoint
+  custom:
+    - name: "RagForge Agent"
+      apiKey: "sk-ragforge-placeholder-key"
+      baseURL: "http://ragforge-api:8000/v1"
+      models:
+        default: ["ragforge-agent"]
+        fetch: true
+      titleConvo: true
+      titleModel: "ragforge-agent"
+      summarize: false
+      headers:
+        X-Conversation-Id: "{{LIBRECHAT_BODY_CONVERSATIONID}}"

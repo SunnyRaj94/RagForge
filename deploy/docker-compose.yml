@@ -136,8 +136,12 @@ services:
       - PORT=3080
       - MONGO_URI=mongodb://mongodb:27017/LibreChat
       - CONFIG_PATH=/app/librechat.yaml
-      - CREDS_KEY=supersecretcredskey1234567890123456
-      - JWT_SECRET=supersecretjwtsecret1234567890123456
+      - ALLOW_REGISTRATION=true
+      - ENDPOINTS=custom
+      - CREDS_KEY=f34a9b2b2b1a7d6e5c8b9a1f2e3d4c5b6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d
+      - CREDS_IV=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+      - JWT_SECRET=162bb776dfba7744383c27e025875ab93a1e944ef050dbd668c227ebf7620bc2
+      - JWT_REFRESH_SECRET=7f8846bb1e72e12a435a6435cfd0d5d28b1846b0ed55db88c31278ff56a00cd4
     volumes:
       - ./librechat.yaml:/app/librechat.yaml
       - ../data/librechat/uploads:/app/client/public/images
