@@ -138,14 +138,12 @@ st.markdown(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def get_ollama_llm_models() -> list[str]:
     try:
         res = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=5.0)
         models = res.json().get("models", [])
-        return [
-            m["name"] for m in models
-            if "embed" not in m["name"].lower()
-        ]
+        return [m["name"] for m in models if "embed" not in m["name"].lower()]
     except Exception:
         return ["gemma4:e4b"]
 
@@ -154,10 +152,7 @@ def get_ollama_embedding_models() -> list[str]:
     try:
         res = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=5.0)
         models = res.json().get("models", [])
-        return [
-            m["name"] for m in models
-            if "embed" in m["name"].lower()
-        ]
+        return [m["name"] for m in models if "embed" in m["name"].lower()]
     except Exception:
         return ["embeddinggemma:latest"]
 
@@ -166,14 +161,18 @@ def get_openproject_stats() -> tuple[str, int, int]:
     try:
         auth = ("apikey", OPENPROJECT_API_KEY)
         rp = httpx.get(f"{OPENPROJECT_URL}/api/v3/projects", auth=auth, timeout=3.0)
-        rwp = httpx.get(f"{OPENPROJECT_URL}/api/v3/work_packages", auth=auth, timeout=3.0)
+        rwp = httpx.get(
+            f"{OPENPROJECT_URL}/api/v3/work_packages", auth=auth, timeout=3.0
+        )
         return "Connected", rp.json().get("total", 0), rwp.json().get("total", 0)
     except Exception:
         return "Offline", 0, 0
 
 
 # ── Sidebar — model picker ────────────────────────────────────────────────────
-st.sidebar.markdown("<h3 style='font-weight:700;'>⚙️ Models</h3>", unsafe_allow_html=True)
+st.sidebar.markdown(
+    "<h3 style='font-weight:700;'>⚙️ Models</h3>", unsafe_allow_html=True
+)
 
 # 1. Chat Completion Model selection (default: gemma4:e4b)
 available_llms = get_ollama_llm_models()
@@ -193,15 +192,21 @@ if "embeddinggemma:latest" in available_embeddings:
 elif DEFAULT_EMBEDDING_MODEL in available_embeddings:
     embed_idx = available_embeddings.index(DEFAULT_EMBEDDING_MODEL)
 
-selected_embedding = st.sidebar.selectbox("Embedding Model", available_embeddings, index=embed_idx)
+selected_embedding = st.sidebar.selectbox(
+    "Embedding Model", available_embeddings, index=embed_idx
+)
 
 # Propagate selected embedding model to environment variables
 import os
+
 os.environ["DEFAULT_EMBEDDING_MODEL"] = selected_embedding
 
 # ── Sidebar — session management ─────────────────────────────────────────────
 st.sidebar.markdown("---")
-st.sidebar.markdown("<h3 style='font-weight:600;font-size:1.1rem;'>Chat Sessions</h3>", unsafe_allow_html=True)
+st.sidebar.markdown(
+    "<h3 style='font-weight:600;font-size:1.1rem;'>Chat Sessions</h3>",
+    unsafe_allow_html=True,
+)
 
 store = get_session_store()
 sessions = store.list_sessions()
@@ -211,6 +216,7 @@ if "active_session_id" not in st.session_state:
         st.session_state.active_session_id = sessions[0]["session_id"]
     else:
         from datetime import datetime
+
         default_name = datetime.now().strftime("%Y-%b%d-%H%M").lower()
         new_sid = str(uuid.uuid4())
         store.save_session(new_sid, default_name, [])
@@ -220,7 +226,8 @@ if "active_session_id" not in st.session_state:
 recent_sessions = sessions[:5]
 if st.session_state.active_session_id not in [s["session_id"] for s in recent_sessions]:
     active_details = next(
-        (s for s in sessions if s["session_id"] == st.session_state.active_session_id), None
+        (s for s in sessions if s["session_id"] == st.session_state.active_session_id),
+        None,
     )
     if not active_details:
         active_details = store.load_session(st.session_state.active_session_id)
@@ -241,11 +248,12 @@ selected_session_id = st.sidebar.selectbox(
 
 if selected_session_id != st.session_state.active_session_id:
     st.session_state.active_session_id = selected_session_id
-    st.session_state.pop("agent", None)   # reset agent on session switch
+    st.session_state.pop("agent", None)  # reset agent on session switch
     st.rerun()
 
 if st.sidebar.button("➕ New Chat Session", use_container_width=True):
     from datetime import datetime
+
     default_name = datetime.now().strftime("%Y-%b%d-%H%M").lower()
     new_sid = str(uuid.uuid4())
     store.save_session(new_sid, default_name, [])
@@ -299,16 +307,20 @@ with mc3:
 
 # ── Agent initialisation (cached per session + model) ────────────────────────
 
+
 @st.cache_resource(show_spinner="Connecting to MCP servers & building agent graph…")
 def get_agent(llm_model: str, embedding_model: str, session_id: str) -> RagForgeAgent:
     import os
+
     os.environ["DEFAULT_EMBEDDING_MODEL"] = embedding_model
     agent = RagForgeAgent(llm_model=llm_model, session_id=session_id)
     asyncio.run(agent.initialise())
     return agent
 
 
-agent: RagForgeAgent = get_agent(selected_llm, selected_embedding, st.session_state.active_session_id)
+agent: RagForgeAgent = get_agent(
+    selected_llm, selected_embedding, st.session_state.active_session_id
+)
 
 # Thread config — each session gets its own LangGraph thread for checkpoint isolation
 thread_config = {"configurable": {"thread_id": st.session_state.active_session_id}}
@@ -324,6 +336,7 @@ def run_async_stream(state_update, thread_config):
         ):
             events.append(event)
         return events
+
     return asyncio.run(_collect())
 
 
@@ -336,7 +349,9 @@ for msg in st.session_state.messages:
 
 # ── Render active reasoning trace (if any) ──────────────────────────────────
 if "thoughts" in st.session_state and st.session_state.thoughts:
-    with st.expander("🔍 Latest Agent Reasoning & Tool Execution Trace", expanded=False):
+    with st.expander(
+        "🔍 Latest Agent Reasoning & Tool Execution Trace", expanded=False
+    ):
         for t_type, t_val in st.session_state.thoughts:
             label = "**Thought:**" if t_type == "thought" else "**Observation:**"
             st.markdown(f"{label} {t_val}")
@@ -345,23 +360,31 @@ if "thoughts" in st.session_state and st.session_state.thoughts:
 if "pending_query" in st.session_state and st.session_state.pending_query:
     user_prompt = st.session_state.pop("pending_query")
     st.session_state.pending_user_prompt = user_prompt
-    
+
     with st.chat_message("assistant"):
         thought_placeholder = st.empty()
         thoughts: list[tuple[str, str]] = []
-        
+
         def render_thoughts():
             with thought_placeholder.container():
                 for t_type, t_val in thoughts:
-                    css_class = "thought-container" if t_type == "thought" else "observation-container"
+                    css_class = (
+                        "thought-container"
+                        if t_type == "thought"
+                        else "observation-container"
+                    )
                     header = "Thought" if t_type == "thought" else "Observation"
-                    header_class = "thought-header" if t_type == "thought" else "observation-header"
+                    header_class = (
+                        "thought-header"
+                        if t_type == "thought"
+                        else "observation-header"
+                    )
                     st.markdown(
                         f"<div class='{css_class}'>"
                         f"<div class='{header_class}'>{header}</div>{t_val}</div>",
                         unsafe_allow_html=True,
                     )
-        
+
         with st.spinner("Agent is reasoning…"):
             try:
                 # Stream graph execution
@@ -384,7 +407,9 @@ if "pending_query" in st.session_state and st.session_state.pending_query:
                     ):
                         msgs = event.get("messages", [])
                         for m in msgs:
-                            msg_id = getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                            msg_id = (
+                                getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                            )
                             if msg_id in seen_ids:
                                 continue
                             seen_ids.add(msg_id)
@@ -393,7 +418,10 @@ if "pending_query" in st.session_state and st.session_state.pending_query:
                                 if m.tool_calls:
                                     for tc in m.tool_calls:
                                         thoughts.append(
-                                            ("thought", f"Calling tool **`{tc['name']}`** with args:<br><code>{json.dumps(tc['args'], indent=2)}</code>")
+                                            (
+                                                "thought",
+                                                f"Calling tool **`{tc['name']}`** with args:<br><code>{json.dumps(tc['args'], indent=2)}</code>",
+                                            )
                                         )
                                     render_thoughts()
                                 elif m.content:
@@ -448,6 +476,7 @@ if "pending_query" in st.session_state and st.session_state.pending_query:
 
             except Exception as ex:
                 import traceback
+
                 traceback.print_exc()
                 st.error(f"Agent error: {str(ex)}")
 
@@ -479,11 +508,13 @@ if st.session_state.hitl_pending:
             # Resume graph with approval
             with st.spinner("Executing approved tool…"):
                 state_update = {"hitl_approved": True, "pending_tool_call": None}
-                agent.graph.update_state(thread_config, state_update, as_node="check_hitl")
-                
+                agent.graph.update_state(
+                    thread_config, state_update, as_node="check_hitl"
+                )
+
                 # Fetch existing thoughts and append new events
                 thoughts = list(st.session_state.get("thoughts", []))
-                
+
                 async def resume_and_stream():
                     ans = ""
                     # Initialize seen_ids with existing messages in the graph state
@@ -498,7 +529,9 @@ if st.session_state.hitl_pending:
                     ):
                         msgs = event.get("messages", [])
                         for m in msgs:
-                            msg_id = getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                            msg_id = (
+                                getattr(m, "id", None) or f"{m.type}_{len(seen_ids)}"
+                            )
                             if msg_id in seen_ids:
                                 continue
                             seen_ids.add(msg_id)
@@ -508,13 +541,17 @@ if st.session_state.hitl_pending:
                                 thoughts.append(("observation", obs_text))
                             elif isinstance(m, AIMessage) and m.content:
                                 thoughts.append(("thought", m.content))
-                        
+
                         for m in reversed(msgs):
-                            if isinstance(m, AIMessage) and not m.tool_calls and m.content:
+                            if (
+                                isinstance(m, AIMessage)
+                                and not m.tool_calls
+                                and m.content
+                            ):
                                 ans = m.content
                                 break
                     return ans
-                
+
                 final_answer = asyncio.run(resume_and_stream())
                 st.session_state.thoughts = thoughts
 
@@ -522,7 +559,9 @@ if st.session_state.hitl_pending:
             if final_answer:
                 with st.chat_message("assistant"):
                     st.markdown(final_answer)
-                st.session_state.messages.append({"role": "assistant", "content": final_answer})
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": final_answer}
+                )
                 store.save_session(
                     st.session_state.active_session_id,
                     active_name,
@@ -541,9 +580,9 @@ if st.session_state.hitl_pending:
         if st.button("❌ Reject", use_container_width=True):
             state_update = {"hitl_approved": False, "pending_tool_call": None}
             agent.graph.update_state(thread_config, state_update, as_node="check_hitl")
-            
+
             thoughts = list(st.session_state.get("thoughts", []))
-            
+
             async def reject_and_stream():
                 ans = ""
                 # Initialize seen_ids with existing messages in the graph state
@@ -568,20 +607,22 @@ if st.session_state.hitl_pending:
                             thoughts.append(("observation", obs_text))
                         elif isinstance(m, AIMessage) and m.content:
                             thoughts.append(("thought", m.content))
-                            
+
                     for m in reversed(msgs):
                         if isinstance(m, AIMessage) and not m.tool_calls and m.content:
                             ans = m.content
                             break
                 return ans
-                            
+
             final_answer = asyncio.run(reject_and_stream())
             st.session_state.thoughts = thoughts
 
             st.session_state.hitl_pending = False
             with st.chat_message("assistant"):
                 st.markdown(final_answer)
-            st.session_state.messages.append({"role": "assistant", "content": final_answer})
+            st.session_state.messages.append(
+                {"role": "assistant", "content": final_answer}
+            )
             store.save_session(
                 st.session_state.active_session_id,
                 active_name,
