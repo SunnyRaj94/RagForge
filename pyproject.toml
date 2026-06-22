@@ -31,6 +31,7 @@ dependencies = [
     "langchain-community>=0.4.2",
     "fastapi>=0.110.0",
     "uvicorn>=0.28.0",
+    "ipywidgets>=8.1.8",
 ]
 
 [build-system]
