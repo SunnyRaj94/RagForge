@@ -33,6 +33,7 @@ ollama_url = OLLAMA_URL
 def get_embeddings(text: str) -> list[float]:
     """Generates embedding vector from local Ollama model."""
     import os
+
     model_id = os.getenv("DEFAULT_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
     response = httpx.post(
         f"{ollama_url}/api/embeddings",
@@ -135,13 +136,21 @@ def search_documents(
                 f"No documents found (collection '{collection_name}' does not exist)."
             )
 
-        from qdrant_client.models import Filter, FieldCondition, MatchValue, IsEmptyCondition, PayloadField
+        from qdrant_client.models import (
+            Filter,
+            FieldCondition,
+            MatchValue,
+            IsEmptyCondition,
+            PayloadField,
+        )
 
         query_filter = None
         if session_id:
             query_filter = Filter(
                 should=[
-                    FieldCondition(key="session_id", match=MatchValue(value=session_id)),
+                    FieldCondition(
+                        key="session_id", match=MatchValue(value=session_id)
+                    ),
                     IsEmptyCondition(is_empty=PayloadField(key="session_id")),
                 ]
             )
