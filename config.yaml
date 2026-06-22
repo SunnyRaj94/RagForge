@@ -9,21 +9,20 @@ general:
   default_llm_model: "gemma4:e4b"
   default_collection: "ragforge-collection"
 
-
 pdf:
   chunk_size: 1000
   chunk_overlap: 150
-  extract_tables: true      # Extract tables as markdown representation
-  ocr_fallback: true       # Run OCR only if digital text extraction is empty
+  extract_tables: true # Extract tables as markdown representation
+  ocr_fallback: true # Run OCR only if digital text extraction is empty
   ocr_language: ["en"]
 
 excel:
-  row_batch_size: 15        # Group every 15 rows into a single semantic chunk
-  header_row: 1             # Assume row 1 contains table headers
-  sheet_mode: "all"         # "all" sheets or only the "first" sheet
+  row_batch_size: 15 # Group every 15 rows into a single semantic chunk
+  header_row: 1 # Assume row 1 contains table headers
+  sheet_mode: "all" # "all" sheets or only the "first" sheet
 
 pptx:
-  slide_as_chunk: true      # Each slide is treated as a single self-contained chunk
+  slide_as_chunk: true # Each slide is treated as a single self-contained chunk
   prepend_slide_title: true # Prepends Slide Title to slide contents
 
 image:
@@ -35,9 +34,10 @@ default:
   chunk_overlap: 100
 
 session_store:
-  type: "json"                   # "json" or "postgres"
+  type: "json" # "json" or "postgres"
   postgres_url: "postgresql://temporal:temporal@localhost:5432/temporal"
   json_dir: "./data/sessions"
+  schema: "ragforge_ingestion"
   chat_history_collection: "chat-history-collection"
-  rolling_window_turns: 3        # Number of recent user-assistant turns to keep in rolling memory
-
+  rolling_window_turns: 3 # Number of recent user-assistant turns to keep in rolling memory
+  ingestion_stage_postgres_url: "postgresql://temporal:temporal@localhost:5432/temporal"
