@@ -40,8 +40,8 @@ async def scan_directory_activity(directory_path: str) -> List[str]:
 async def parse_and_chunk_activity(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Loads and chunks a document file."""
     # Local imports to avoid Temporal sandbox validation errors
-    from src.ragforge.loader.loader import load_file
-    from src.ragforge.chunking.chunker import chunk_documents
+    from ragforge.ingestion.loaders import load_file
+    from ragforge.ingestion.chunking import chunk_documents
 
     file_path = payload["file_path"]
     config_path = payload.get("config_path", None)
@@ -57,7 +57,7 @@ async def parse_and_chunk_activity(payload: Dict[str, Any]) -> List[Dict[str, An
 async def embed_and_index_activity(payload: Dict[str, Any]) -> str:
     """Creates a collection and indexes the chunks into Qdrant."""
     # Local imports to avoid Temporal sandbox validation errors
-    from src.ragforge.index.indexer import create_collection, upsert_documents
+    from ragforge.ingestion.indexing import create_collection, upsert_documents
 
     collection_name = payload["collection_name"]
     chunks = payload["chunks"]
@@ -82,7 +82,7 @@ async def embed_and_index_activity(payload: Dict[str, Any]) -> str:
 async def log_mlflow_run_activity(payload: Dict[str, Any]) -> str:
     """Logs the ingestion execution to MLflow."""
     import mlflow
-    from src.ragforge.config import MLFLOW_TRACKING_URI
+    from ragforge.config import MLFLOW_TRACKING_URI
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment("ragforge-ingestion")

@@ -91,7 +91,7 @@ def test_end_to_end_pipeline():
 
         # Verify query in Qdrant
         search_res = q_client.query_points(
-            collection_name, query=get_embedding("LLMs clean data"), limit=1
+            collection_name, query=get_embedding("LLMs clean data"), using="text_vector", limit=1
         )
         assert len(search_res.points) == 1
         assert "RagForge" in search_res.points[0].payload["text"]

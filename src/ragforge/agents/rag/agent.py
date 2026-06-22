@@ -35,11 +35,11 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from typing_extensions import TypedDict
 
-from src.ragforge.agents.rag.prompts import (
+from ragforge.agents.rag.prompts import (
     CHAT_HISTORY_DOCUMENT_TEMPLATE,
     RAG_AGENT_SYSTEM_PROMPT,
 )
-from src.ragforge.config import (
+from ragforge.config import (
     CHAT_HISTORY_COLLECTION,
     DEFAULT_EMBEDDING_MODEL,
     OLLAMA_URL,

@@ -8,7 +8,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 import mlflow
 
 # Configure OpenTelemetry to export to Arize Phoenix
-from src.ragforge.config import PHOENIX_COLLECTOR_URL
+from ragforge.config import PHOENIX_COLLECTOR_URL
 
 phoenix_url = PHOENIX_COLLECTOR_URL
 

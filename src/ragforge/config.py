@@ -60,6 +60,15 @@ SESSION_STORE_POSTGRES_URL = os.getenv(
 SESSION_STORE_JSON_DIR = os.getenv(
     "SESSION_STORE_JSON_DIR", session_store_cfg.get("json_dir", "./data/sessions")
 )
+INGESTION_STAGE_POSTGRES_URL = os.getenv(
+    "INGESTION_STAGE_POSTGRES_URL",
+    session_store_cfg.get(
+        "postgres_url", "postgresql://temporal:temporal@localhost:5432/temporal"
+    ),
+)
+INGESTION_STAGE_SCHEMA = os.getenv(
+    "INGESTION_STAGE_SCHEMA", session_store_cfg.get("schema", "ragforge_ingestion")
+)
 CHAT_HISTORY_COLLECTION = os.getenv(
     "CHAT_HISTORY_COLLECTION",
     session_store_cfg.get("chat_history_collection", "chat-history-collection"),

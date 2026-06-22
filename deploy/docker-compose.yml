@@ -83,6 +83,68 @@ services:
     networks:
       - ragforge-net
 
+  # 7. RagForge API Gateway
+  ragforge-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ragforge-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - QDRANT_URL=http://qdrant:6333
+      - OPENPROJECT_URL=http://openproject:80
+      - TEMPORAL_URL=temporal:7233
+      - SESSION_STORE_POSTGRES_URL=postgresql://temporal:temporal@postgresql:5432/temporal
+    volumes:
+      - ../src:/app/src
+      - ../servers:/app/servers
+      - ../config.yaml:/app/config.yaml
+      - ../data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - qdrant
+      - openproject
+      - temporal
+    networks:
+      - ragforge-net
+
+  # 8. MongoDB (For LibreChat Storage)
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    volumes:
+      - ../data/mongodb:/data/db
+    networks:
+      - ragforge-net
+
+  # 9. LibreChat UI
+  librechat:
+    image: librechat/librechat:latest
+    container_name: librechat-app
+    ports:
+      - "3080:3080"
+    depends_on:
+      - ragforge-api
+      - mongodb
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3080
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      - CONFIG_PATH=/app/librechat.yaml
+      - CREDS_KEY=supersecretcredskey1234567890123456
+      - JWT_SECRET=supersecretjwtsecret1234567890123456
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml
+      - ../data/librechat/uploads:/app/client/public/images
+      - ../data/librechat/data:/app/api/data
+    networks:
+      - ragforge-net
+
 networks:
   ragforge-net:
     driver: bridge

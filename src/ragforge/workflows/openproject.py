@@ -35,7 +35,7 @@ STATUS_MAP = {
 
 
 def _get_auth_headers():
-    from src.ragforge.config import OPENPROJECT_URL, OPENPROJECT_API_KEY
+    from ragforge.config import OPENPROJECT_URL, OPENPROJECT_API_KEY
 
     return OPENPROJECT_URL, ("apikey", OPENPROJECT_API_KEY)
 

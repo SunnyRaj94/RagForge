@@ -5,14 +5,14 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 # Load workflows and activities
-from src.ragforge.workflows.ingestion import (
+from ragforge.workflows.ingestion import (
     IngestionWorkflow,
     scan_directory_activity,
     parse_and_chunk_activity,
     embed_and_index_activity,
     log_mlflow_run_activity,
 )
-from src.ragforge.workflows.openproject import (
+from ragforge.workflows.openproject import (
     OpenProjectWriteWorkflow,
     create_work_package_activity,
     update_work_package_status_activity,
@@ -23,7 +23,7 @@ load_dotenv()
 
 
 async def main():
-    from src.ragforge.config import TEMPORAL_URL
+    from ragforge.config import TEMPORAL_URL
 
     temporal_url = TEMPORAL_URL
 

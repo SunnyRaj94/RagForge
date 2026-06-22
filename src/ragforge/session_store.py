@@ -221,7 +221,7 @@ class PostgresSessionStore(BaseSessionStore):
 
 
 def get_session_store() -> BaseSessionStore:
-    from src.ragforge.config import (
+    from ragforge.config import (
         SESSION_STORE_TYPE,
         SESSION_STORE_JSON_DIR,
         SESSION_STORE_POSTGRES_URL,

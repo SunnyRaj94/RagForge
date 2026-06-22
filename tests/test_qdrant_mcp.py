@@ -57,7 +57,10 @@ def test_qdrant_flow():
 
     # Test search with a session_id matches globally ingested documents (lacking session_id)
     res_search_session = search_documents(
-        collection_name, "rust vector database query", session_id="test-session-xyz", limit=1
+        collection_name,
+        "rust vector database query",
+        session_id="test-session-xyz",
+        limit=1,
     )
     assert "Qdrant" in res_search_session
 
