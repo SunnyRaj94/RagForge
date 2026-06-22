@@ -29,6 +29,8 @@ dependencies = [
     "litellm>=1.89.2",
     "crewai>=1.6.1",
     "langchain-community>=0.4.2",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
 ]
 
 [build-system]
@@ -37,4 +39,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["ragforge"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ragforge*"]

@@ -4900,6 +4900,7 @@ dependencies = [
     { name = "arize-phoenix" },
     { name = "crewai" },
     { name = "easyocr" },
+    { name = "fastapi" },
     { name = "langchain-community" },
     { name = "langchain-core" },
     { name = "langchain-ollama" },
@@ -4921,6 +4922,7 @@ dependencies = [
     { name = "requests" },
     { name = "streamlit" },
     { name = "temporalio" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -4928,6 +4930,7 @@ requires-dist = [
     { name = "arize-phoenix", specifier = ">=3.0.0" },
     { name = "crewai", specifier = ">=1.6.1" },
     { name = "easyocr", specifier = ">=1.7.0" },
+    { name = "fastapi", specifier = ">=0.110.0" },
     { name = "langchain-community", specifier = ">=0.4.2" },
     { name = "langchain-core", specifier = ">=1.4.8" },
     { name = "langchain-ollama", specifier = ">=1.1.0" },
@@ -4949,6 +4952,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.31.0" },
     { name = "streamlit", specifier = ">=1.35.0" },
     { name = "temporalio", specifier = ">=1.4.0" },
+    { name = "uvicorn", specifier = ">=0.28.0" },
 ]
 
 [[package]]
