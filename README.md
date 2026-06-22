@@ -2,43 +2,100 @@
 
 RagForge is a local, production-grade Retrieval-Augmented Generation (RAG) chat application and project management assistant. It parses complex documents, embeds them, indexes them into a vector database, and operates in a ReAct loop to query documents and automate project management tasks (creating work packages, updating status, adding comments).
 
-The system integrates custom stdio Model Context Protocol (MCP) servers with a modular ingestion pipeline orchestrated by **Temporal.ai**, tracked via **MLflow**, and traced using **OpenTelemetry** / **Arize Phoenix**.
+The system integrates custom stdio Model Context Protocol (MCP) servers with a modular ingestion pipeline orchestrated by **Temporal.ai**, tracked via **MLflow**, and traced using **OpenTelemetry** / **Arize Phoenix**. It exposes the reasoning agent via a custom FastAPI gateway to LibreChat as a primary conversational chat interface, utilizing LibreChat's collapsible thought blocks to show intermediate tool steps.
 
 ---
 
 ## 🧭 Architecture
 
-The application is deployed in a hybrid local configuration: database, orchestration, and tracing servers run in containerized environments (Docker Compose), while GPU-intensive models (Ollama), python workflows, workers, and UI interfaces run on the macOS host for direct metal acceleration.
+The application is deployed in a hybrid local configuration: database, orchestration, tracing, API gateways, and web chat frontends run in containerized environments (Docker Compose), while GPU-intensive models (Ollama), python workflows, and workers run on the macOS host for direct metal acceleration.
 
 ```mermaid
 graph TD
     subgraph Host ["macOS Host"]
         Ollama["Ollama (LLM & Embeddings)<br>Port 11434"]
-        Streamlit["RAG Chat App UI (app.py)<br>Port 8501"]
         TemporalWorker["Temporal Worker (worker.py)<br>Runs Ingestion & OP Writes"]
-        Agent["ReAct Agent & MCP Client Session"]
+        Streamlit["Streamlit UI (app.py)<br>Port 8501 (Optional)"]
     end
 
     subgraph Docker ["Docker Network"]
+        LibreChat["LibreChat Web UI<br>Port 3080"]
+        MongoDB["MongoDB<br>(LibreChat Store)"]
+        Gateway["FastAPI Gateway (api.py)<br>Port 8000"]
+        Agent["ReAct Agent (LangGraph)"]
         QdrantDB["Qdrant DB<br>Port 6333"]
         OpenProjectDB["OpenProject DB<br>Port 8080"]
         TemporalServer["Temporal Server (auto-setup)<br>Port 7233"]
         TemporalUI["Temporal UI<br>Port 8233"]
-        Postgres["Postgres DB<br>(Temporal schema)"]
+        Postgres["Postgres DB<br>(Temporal & Staging schema)"]
         Phoenix["Arize Phoenix (OTEL Tracing)<br>Port 6006"]
     end
 
     %% Communications
-    Streamlit -->|Runs| Agent
+    LibreChat -->|Chat API Requests| Gateway
+    LibreChat <--> MongoDB
+    Streamlit -->|Direct Execution| Agent
+    Gateway -->|Runs| Agent
     Agent -->|Invokes Stdio MCP Tools| QdrantDB
     Agent -->|Invokes Stdio MCP Tools| OpenProjectDB
     Agent -->|Queries| Ollama
+    Gateway -->|Traces| Phoenix
 
     TemporalWorker -->|Connects to| TemporalServer
     TemporalWorker -->|Orchestrates| QdrantDB
     TemporalWorker -->|Orchestrates| OpenProjectDB
     TemporalWorker -->|Logs to| Phoenix
     TemporalWorker -->|Tracks run| MLflow["Local MLflow (mlruns/)"]
+```
+
+### 📥 Ingestion Pipeline Architecture
+
+The ingestion pipeline is a modular, multi-stage ETL process that manages state tracking in PostgreSQL, heuristics-based classification, text/table extraction, context-aware chunking, and vector indexing with named vectors in Qdrant.
+
+```mermaid
+flowchart TD
+    subgraph Ingestion ["Ingestion Input"]
+        Files["Corpus Files / Directory Scan<br>(PDF, Excel, PPTX, Images, Emails, TXT)"]
+    end
+
+    subgraph Loading ["Stage 1: Load & State Track"]
+        Hash["File Hashing (SHA-256)"]
+        Loaders["Specialized Loaders<br>(PdfLoader, ExcelLoader, etc.)"]
+        StagingDB[("PostgreSQL Staging DB<br>(Track File/Chunk Status)")]
+    end
+
+    subgraph Routing ["Stage 2: Heuristic Routing"]
+        Router["Dynamic Router<br>(Classifies: text, ocr, llm)"]
+    end
+
+    subgraph Processing ["Stage 3: Block Processing"]
+        OCR["EasyOCR Engine"]
+        LLM["Ollama Summarization"]
+        TableMarkdown["Table-to-Markdown Parser"]
+        Extraction["Metadata & Term Extraction"]
+    end
+
+    subgraph Chunking ["Stage 4: Context-Aware Chunking"]
+        TableChunker["Table Chunker<br>(Row-aligned splitting)"]
+        TextChunker["Text Chunker<br>(Sentence-aligned splitting)"]
+    end
+
+    subgraph Indexing ["Stage 5: Named Vector Indexing"]
+        Embed["Ollama Embeddings API<br>(Truncated to safe limits)"]
+        Qdrant[("Qdrant Vector Database<br>text_vector & summary_vector")]
+    end
+
+    Files --> Hash
+    Hash --> Loaders
+    Loaders <--> StagingDB
+    Loaders --> Router
+    Router -->|ocr| OCR
+    Router -->|llm| LLM
+    Router -->|text| TableMarkdown
+    OCR & LLM & TableMarkdown --> Extraction
+    Extraction --> TableChunker & TextChunker
+    TableChunker & TextChunker --> Embed
+    Embed --> Qdrant
 ```
 
 ---
@@ -48,9 +105,10 @@ graph TD
 - **Orchestration**: [Temporal.ai](https://temporal.ai)
 - **Vector Database**: [Qdrant DB](https://qdrant.tech)
 - **Project Management**: [OpenProject](https://www.openproject.org) (API v3)
-- **Inference & Embeddings**: [Ollama](https://ollama.com) (`gemma4:e4b` + `nomic-embed-text`)
+- **Inference & Embeddings**: [Ollama](https://ollama.com) (`gemma4:e4b` + `embeddinggemma:latest`)
 - **Telemetry & Tracing**: [Arize Phoenix](https://phoenix.arize.com) (OTEL Collector) + [MLflow](https://mlflow.org)
-- **UI Framework**: [Streamlit](https://streamlit.io)
+- **Gateway & APIs**: [FastAPI Gateway](https://fastapi.tiangolo.com) (OpenAI-compatible)
+- **Chat UI**: [LibreChat](https://www.librechat.ai) (Primary) & [Streamlit](https://streamlit.io) (Alternative)
 - **Environment Management**: [uv](https://github.com/astral-sh/uv)
 
 ---
@@ -60,13 +118,15 @@ graph TD
 ```text
 RAGFORGE/
 ├── deploy/                    # Deployment scripts & Docker configs
-│   ├── docker-compose.yml     # Postgres, Temporal, Qdrant, OpenProject, Phoenix Containers
+│   ├── docker-compose.yml     # Postgres, Temporal, Qdrant, OpenProject, Phoenix, MongoDB, LibreChat
+│   ├── librechat.yaml         # Custom LibreChat configuration for RagForge endpoint mapping
 │   └── manage_services.sh     # Orchestrates starting, stopping, and status checks of services
 │
 ├── pyproject.toml             # Python dependency metadata (managed by uv)
 ├── config.yaml                # General service and session configurations
+├── Dockerfile                 # Production Dockerfile for FastAPI Gateway
 ├── .env                       # Local environment configurations
-├── app.py                     # Streamlit frontend & ReAct client loop
+├── app.py                     # Streamlit frontend (Alternative UI)
 │
 ├── notebooks/                 # Study & Exploration Playgrounds
 │   ├── qdrant/                # Basic CRUD & Chat with Vector DB notebooks
@@ -83,17 +143,28 @@ RAGFORGE/
 │
 ├── src/                       # Core RagForge source package
 │   └── ragforge/
-│       ├── loader/            # Specialized parsers (PDF, Excel, PPTX, Images)
-│       ├── chunking/          # Context-aware text splitters
+│       ├── api.py             # FastAPI gateway (OpenAI-compatible endpoints)
 │       ├── session_store.py   # JSON and Postgres session history store backends
 │       ├── config.py          # Config-driven connection settings
-│       ├── embeddings/        # Embedding abstractions (Ollama client)
-│       ├── index/             # Qdrant collection operations
-│       ├── workflows/         # Temporal Workflow & Activity declarations
-│       │   ├── ingestion.py   # Dir scan, parse, index, and MLflow logging workflow
-│       │   └── openproject.py # OpenProject creates, updates, and comment activities
-│       ├── agents/            # Modular LangGraph Agents (e.g. agents/rag/)
 │       ├── worker.py          # Temporal Worker launcher
+│       │
+│       ├── ingestion/         # Redesigned modular Ingestion & ETL pipeline
+│       │   ├── loaders/       # Specialized parsers (PDF, Excel, PPTX, Image OCR, Email, Text)
+│       │   ├── routing/       # Heuristic routing and document classification
+│       │   ├── processors/    # Unit processor executing OCR, tables, summaries, term extraction
+│       │   ├── chunking/      # Context-aware splitters (sentence & table row alignment)
+│       │   ├── indexing/      # Vector database indexing and querying (Qdrant)
+│       │   ├── staging/       # Postgres state tracking (file & chunk execution history)
+│       │   ├── utils/         # Hashing, normalization, serialization helpers
+│       │   └── models.py      # Core data models (DocumentUnit, LoadedBlock)
+│       │
+│       ├── schemas/           # Pydantic validation schemas (chat history, documents)
+│       ├── agents/            # Modular LangGraph Agents (e.g. agents/rag/)
+│       ├── workflows/         # Temporal Workflow & Activity declarations (Ingestion, OP Writes)
+│       ├── embeddings/        # Embedding abstractions (Ollama client)
+│       ├── index/             # Qdrant collection operations (backward compatible wrappers)
+│       ├── loader/            # Specialized parsers wrapper (backward compatible)
+│       ├── chunking/          # Context-aware text splitters wrapper (backward compatible)
 │       └── utils/             # OTEL tracing hooks & decorators
 │
 └── tests/                     # Pipeline component and workflow test suite
@@ -149,7 +220,7 @@ All playgrounds resolve connection endpoints solely through [src/ragforge/config
 - Install **Ollama** on your macOS host and pull the required models:
   ```bash
   ollama pull gemma4:e4b
-  ollama pull nomic-embed-text
+  ollama pull embeddinggemma:latest
   ```
 - Install `uv` for python dependencies:
   ```bash
@@ -234,7 +305,9 @@ uv run streamlit run app.py
 
 Open the following dashboards in your browser:
 
-- **Streamlit Web UI**: [http://localhost:8501](http://localhost:8501)
+- **LibreChat Web UI**: [http://localhost:3080](http://localhost:3080) (Sign up as user to access the RagForge Agent)
+- **FastAPI API Gateway**: [http://localhost:8000/v1](http://localhost:8000/v1)
+- **Streamlit Web UI (Alternative)**: [http://localhost:8501](http://localhost:8501)
 - **Arize Phoenix UI (Traces)**: [http://localhost:6006](http://localhost:6006)
 - **Temporal Web Dashboard**: [http://localhost:8233](http://localhost:8233)
 - **OpenProject Web Workspace**: [http://localhost:8080](http://localhost:8080) (Log in with `admin`/`admin` on first launch)
